@@ -41,8 +41,18 @@ pub enum Deco {
     },
     /// 코드 블록 배경
     CodeBlock { start: usize, end: usize },
+    /// 커서가 밖에 있는 표: 원문은 숨기고 칸과 선으로 그립니다 (구분 줄 `| --- |` 은 행에 없음)
+    Table { rows: Vec<TableRow>, aligns: Vec<ImgAlign>, row_height: f32 },
     /// Ctrl+클릭으로 열 링크
     Link { start: usize, end: usize, url: String },
+}
+
+/// 표의 한 행. `at` 은 그 줄의 첫 글자 위치
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableRow {
+    pub at: usize,
+    pub cells: Vec<String>,
+    pub header: bool,
 }
 
 #[derive(Clone)]
@@ -156,6 +166,8 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
         return LiveLayout { job: b.job, decos: b.decos, image_uris };
     }
 
+    let tables = find_tables(text);
+    let mut table_rows: Vec<TableRow> = Vec::new();
     let mut fence: Option<(&str, usize)> = None; // (여는 기호, 블록 시작 글자 위치)
     for (line_no, line) in text.split_inclusive('\n').enumerate() {
         let active = input.active_line == Some(line_no);
@@ -191,6 +203,32 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
             fence = Some((open, line_start_char));
             let f = if active { b.fmt(&st.mono, 0.85, st.muted) } else { b.hidden() };
             b.push(line, f);
+            continue;
+        }
+
+        // 표: 커서가 표 안에 있으면 고칠 수 있게 원문(고정폭)으로, 밖에 있으면 원문을 숨기고 칸과 선으로 그림
+        if let Some(tb) = tables.iter().find(|t| (t.start..t.end).contains(&line_no)) {
+            let separator = line_no == tb.start + 1;
+            let editing = input.active_line.is_some_and(|a| (tb.start..tb.end).contains(&a));
+            if editing {
+                let f = b.fmt(&st.mono, 0.9, if separator { st.muted } else { st.text });
+                b.push(body, f.clone());
+                b.push(nl, f);
+            } else {
+                let row_height = (st.size * TABLE_ROW_SCALE).round();
+                let mut f = b.hidden();
+                f.line_height = Some(if separator { 1.0 } else { row_height });
+                if !separator {
+                    let cells = split_cells(body).iter().map(|c| plain_cell(c)).collect();
+                    table_rows.push(TableRow { at: line_start_char, cells, header: line_no == tb.start });
+                }
+                b.push(body, f.clone());
+                b.push(nl, f);
+                if line_no + 1 == tb.end {
+                    let rows = std::mem::take(&mut table_rows);
+                    b.decos.push(Deco::Table { rows, aligns: tb.aligns.clone(), row_height });
+                }
+            }
             continue;
         }
 
@@ -371,6 +409,126 @@ enum ListKind {
 struct ListMarker {
     kind: ListKind,
     len: usize,
+}
+
+/// 표 한 행의 높이 (글자 크기 대비)
+const TABLE_ROW_SCALE: f32 = 1.9;
+
+/// 표 한 덩어리: 줄 번호 `start..end` (머리 줄, 구분 줄, 내용 줄들)
+struct TableBlock {
+    start: usize,
+    end: usize,
+    aligns: Vec<ImgAlign>,
+}
+
+/// `| 가 | 나 |` → `["가", "나"]`. `\|` 와 `` `코드` `` 안의 `|` 는 칸을 나누지 않습니다.
+pub fn split_cells(line: &str) -> Vec<String> {
+    let t = line.trim();
+    let t = t.strip_prefix('|').unwrap_or(t);
+    let t = if t.ends_with('|') && !t.ends_with("\\|") { &t[..t.len() - 1] } else { t };
+    let mut cells = Vec::new();
+    let mut cur = String::new();
+    let mut code = false;
+    let mut chars = t.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' if chars.peek() == Some(&'|') => {
+                cur.push('|');
+                chars.next();
+            }
+            '`' => {
+                code = !code;
+                cur.push(ch);
+            }
+            '|' if !code => cells.push(std::mem::take(&mut cur).trim().to_owned()),
+            _ => cur.push(ch),
+        }
+    }
+    cells.push(cur.trim().to_owned());
+    cells
+}
+
+/// `| --- | :---: | ---: |` 같은 구분 줄이면 칸마다 정렬
+fn table_separator(line: &str) -> Option<Vec<ImgAlign>> {
+    if !line.contains('|') {
+        return None;
+    }
+    split_cells(line)
+        .iter()
+        .map(|c| {
+            let inner = c.strip_prefix(':').unwrap_or(c);
+            let inner = inner.strip_suffix(':').unwrap_or(inner);
+            if inner.is_empty() || !inner.chars().all(|ch| ch == '-') {
+                return None;
+            }
+            Some(match (c.starts_with(':'), c.ends_with(':')) {
+                (true, true) => ImgAlign::Center,
+                (false, true) => ImgAlign::Right,
+                _ => ImgAlign::Left,
+            })
+        })
+        .collect()
+}
+
+/// 문서의 표들 (코드 블록 안은 빼고)
+fn find_tables(text: &str) -> Vec<TableBlock> {
+    let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+    let mut out = Vec::new();
+    let mut in_fence = false;
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim_start();
+        if t.starts_with("```") || t.starts_with("~~~") {
+            in_fence = !in_fence;
+            i += 1;
+            continue;
+        }
+        if !in_fence
+            && lines[i].contains('|')
+            && let Some(aligns) = lines.get(i + 1).and_then(|l| table_separator(l))
+            && split_cells(lines[i]).len() == aligns.len()
+        {
+            let mut end = i + 2;
+            while end < lines.len() && lines[end].contains('|') && !lines[end].trim().is_empty() {
+                end += 1;
+            }
+            out.push(TableBlock { start: i, end, aligns });
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// 칸 안의 글자에서 마크다운 기호를 뺀 모양 (`**굵게**` → `굵게`, `[글](주소)` → `글`)
+fn plain_cell(cell: &str) -> String {
+    let mut out = String::with_capacity(cell.len());
+    let mut rest = cell;
+    while let Some(ch) = rest.chars().next() {
+        if ch == '['
+            && let Some(close) = rest.find("](")
+            && let Some(paren) = rest[close..].find(')')
+        {
+            out.push_str(&rest[1..close]);
+            rest = &rest[close + paren + 1..];
+            continue;
+        }
+        if let Some(r) = rest.strip_prefix("<br>").or_else(|| rest.strip_prefix("<br/>")) {
+            out.push(' ');
+            rest = r;
+            continue;
+        }
+        if let Some(r) = ["**", "__", "~~"].iter().find_map(|m| rest.strip_prefix(m)) {
+            rest = r;
+            continue;
+        }
+        if ch != '`' {
+            out.push(ch);
+        }
+        rest = &rest[ch.len_utf8()..];
+    }
+    out
 }
 
 fn list_marker(s: &str) -> Option<ListMarker> {
@@ -700,6 +858,28 @@ mod tests {
         let p = parse_image_line(&line).unwrap();
         assert_eq!((p.alt, p.dest, p.width, p.align), ("고양이", "my cat.png", Some(55), ImgAlign::Right));
         assert_eq!(format_image_line("a", "b.png", None, ImgAlign::Left), "![a](b.png)");
+    }
+
+    #[test]
+    fn tables_render_as_grid_until_edited() {
+        let text = "앞\n| 기능 | 단축키 |\n| :--- | ---: |\n| **찾기** | `Ctrl+F` |\n| 바꾸기 | Ctrl\\|H |\n\n뒤";
+        let out = run(text, None, None);
+        assert_eq!(out.job.text, text, "글자는 그대로");
+        let Some(Deco::Table { rows, aligns, .. }) = out.decos.iter().find(|d| matches!(d, Deco::Table { .. })) else {
+            panic!("{:?}", out.decos)
+        };
+        assert_eq!(aligns, &[ImgAlign::Left, ImgAlign::Right]);
+        assert_eq!(rows.len(), 3, "구분 줄은 행이 아님");
+        assert!(rows[0].header && !rows[1].header);
+        assert_eq!(rows[0].at, 2);
+        assert_eq!(rows[1].cells, ["찾기", "Ctrl+F"]);
+        assert_eq!(rows[2].cells, ["바꾸기", "Ctrl|H"]);
+        // 커서가 표 안(구분 줄)에 있으면 원문 그대로
+        let editing = run(text, Some(2), None);
+        assert!(!editing.decos.iter().any(|d| matches!(d, Deco::Table { .. })));
+        // 코드 블록 안의 표 모양은 표가 아님, 구분 줄 없는 | 도 표가 아님
+        let code = run("```\n| a | b |\n| - | - |\n```\na | b\n", None, None);
+        assert!(!code.decos.iter().any(|d| matches!(d, Deco::Table { .. })));
     }
 
     #[test]

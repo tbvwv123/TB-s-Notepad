@@ -118,17 +118,40 @@ impl NotepadApp {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let size = self.settings.editor_font_size;
-                ui.label(
-                    RichText::new("다람쥐 헌 쳇바퀴에 타고파")
-                        .font(FontId::new(size * 1.3, bold_family()))
-                        .color(c(palette.heading)),
+                // 제목 모양 (굵은 글꼴이 없으면 본문 편집기처럼 겹쳐 그려 굵게)
+                let heading = c(palette.heading);
+                let galley = ui.painter().layout_no_wrap(
+                    "다람쥐 헌 쳇바퀴에 타고파".to_owned(),
+                    FontId::new(size * 1.3, bold_family()),
+                    heading,
                 );
+                let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+                if self.fonts.fake_bold {
+                    for dx in crate::fonts::fake_bold_offsets(size * 1.3, ui.ctx().pixels_per_point()) {
+                        ui.painter().galley(rect.min + egui::vec2(dx, 0.0), galley.clone(), heading);
+                    }
+                }
+                ui.painter().galley(rect.min, galley, heading);
                 ui.label(
                     RichText::new("The quick brown fox jumps over the lazy dog. 0123")
                         .font(FontId::new(size, doc_family()))
                         .color(c(palette.text)),
                 );
             });
+        // 고른 글꼴로 다 못 보여 주는 경우 알려 줌
+        if let Some(name) = self.settings.doc_font.clone() {
+            let mut notes = Vec::new();
+            if self.fonts.has_hangul(&name) == Some(false) {
+                notes.push("이 글꼴에는 한글이 없어서 한글은 맑은 고딕으로 보입니다.");
+            }
+            if self.fonts.fake_bold {
+                notes.push("이 글꼴에는 굵은 글꼴이 없어서 제목과 굵은 글씨는 글자를 겹쳐 굵게 보이게 합니다.");
+            }
+            for n in notes {
+                ui.add_space(4.0);
+                ui.label(RichText::new(n).small().color(c(palette.muted)));
+            }
+        }
         ui.add_space(14.0);
         ui_kit::section_title(ui, "원본 보기 (코드)");
         egui::Grid::new("fonts2").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {

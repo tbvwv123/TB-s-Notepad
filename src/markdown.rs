@@ -657,7 +657,12 @@ pub fn apply_action(text: &mut String, sel: Range<usize>, action: &MdAction) -> 
         }
         MdAction::Table => {
             let tpl = "| 제목 1 | 제목 2 | 제목 3 |\n| --- | --- | --- |\n| 내용 | 내용 | 내용 |\n";
-            insert_block(text, start, end, tpl)
+            let r = insert_block(text, start, end, tpl);
+            // 첫 칸("제목 1")을 골라 둬서 바로 고쳐 쓰게
+            match text[start..r.end].find("제목 1") {
+                Some(i) => start + i..start + i + "제목 1".len(),
+                None => r,
+            }
         }
         MdAction::Rule => insert_block(text, start, end, "---\n"),
         MdAction::Insert(s) => {

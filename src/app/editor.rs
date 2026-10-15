@@ -40,6 +40,7 @@ impl NotepadApp {
             s.markdown_highlight && self.doc().is_markdown(),
         );
         let live_style = live_style(&palette, s.editor_font_size);
+        let fake_bold = self.fonts.fake_bold;
         let id = editor_id(self.doc().id);
         let (side, col_w) = self.column(ui.available_width(), wrap);
 
@@ -185,11 +186,24 @@ impl NotepadApp {
                         muted: c(palette.muted),
                         accent,
                         media: &self.media,
+                        fake_bold,
                     };
                     decorations = paint_decorations(ui, &view, decos);
                 }
                 let mut bg_shapes = std::mem::take(&mut decorations.bg);
                 let mut fg_shapes = std::mem::take(&mut decorations.fg);
+                // 고른 글꼴에 굵은 글꼴이 없으면 굵은 글씨(제목, **굵게**)만 오른쪽으로 겹쳐 그려 굵게 보이게
+                if doc_mode
+                    && fake_bold
+                    && let Some(job) = crate::fonts::bold_only_job(&galley.job)
+                {
+                    let bold_galley = ui.fonts_mut(|f| f.layout_job(job));
+                    let ppp = ctx.pixels_per_point();
+                    for dx in crate::fonts::fake_bold_offsets(s.editor_font_size * 1.2, ppp) {
+                        let at = output.galley_pos + egui::vec2(dx, 0.0);
+                        fg_shapes.insert(0, Shape::galley(at, bold_galley.clone(), Color32::TRANSPARENT));
+                    }
+                }
                 if s.show_line_numbers {
                     let bottom = full.bottom().max(clip.bottom());
                     let gutter =

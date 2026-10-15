@@ -25,7 +25,14 @@ pub struct FontLibrary {
     /// 읽어 둔 글꼴 파일. 프로그램이 끝날 때까지 쓰므로 `'static`으로 붙잡아 둡니다
     /// (같은 글꼴을 여러 글꼴 묶음에 넣어도 복사하지 않도록).
     loaded: HashMap<PathBuf, &'static [u8]>,
+    /// 본문 글꼴에 굵은 글꼴이 없어서 글자를 겹쳐 그려 굵게 보이게 하는지 (가짜 굵게)
+    pub fake_bold: bool,
+    /// 글꼴마다 한글이 들어 있는지 (설정 창 안내용, 한 번 확인하면 기억)
+    hangul: HashMap<String, bool>,
 }
+
+/// 본문 글꼴의 굵은 변형을 찾을 때 붙여 보는 이름 (앞에 있는 것부터)
+const BOLD_SUFFIXES: &[&str] = &["Bold", "SemiBold", "Semibold", "DemiBold", "ExtraBold", "Heavy", "Black"];
 
 /// 한글(+ 한자/가나) 대체 글꼴 후보. 메모리를 아끼려고 처음 찾은 하나만 씁니다.
 const CJK_FALLBACKS: &[&str] = &["Malgun Gothic", "Noto Sans CJK KR", "NanumGothic", "Apple SD Gothic Neo"];
@@ -64,7 +71,71 @@ impl FontLibrary {
         all.sort_by_key(|f| f.name.to_lowercase());
         all.dedup_by(|a, b| a.name.eq_ignore_ascii_case(&b.name));
         let fonts = all.iter().filter(|f| !is_style_variant(&f.name)).cloned().collect();
-        Self { fonts, all, loaded: HashMap::new() }
+        Self { fonts, all, loaded: HashMap::new(), fake_bold: false, hangul: HashMap::new() }
+    }
+
+    /// 이 글꼴에 한글(가)이 들어 있는지. 읽을 수 없으면 `None`
+    pub fn has_hangul(&mut self, name: &str) -> Option<bool> {
+        if let Some(v) = self.hangul.get(name) {
+            return Some(*v);
+        }
+        let data = self.data_by_name(name)?;
+        let font = skrifa::FontRef::from_index(&data.font, data.index).ok()?;
+        let v = skrifa::MetadataProvider::charmap(&font).map('가').is_some();
+        self.hangul.insert(name.to_owned(), v);
+        Some(v)
+    }
+
+    /// 글꼴의 굵은 변형 이름. "Pretendard Regular" → "Pretendard Bold",
+    /// "에스코어 드림 4 Regular" → "에스코어 드림 6 Bold" 처럼 이름 끝의 Regular · 숫자를 떼고도 찾아봅니다.
+    pub fn bold_variant(&self, name: &str) -> Option<String> {
+        let mut bases = vec![name.to_owned()];
+        let mut words: Vec<&str> = name.split_whitespace().collect();
+        while words.len() > 1
+            && let Some(last) = words.last()
+            && (["regular", "normal", "book", "roman", "text"].contains(&last.to_lowercase().as_str())
+                || last.chars().all(|c| c.is_ascii_digit()))
+        {
+            words.pop();
+            bases.push(words.join(" "));
+        }
+        // 1) 정확한 이름
+        for base in &bases {
+            for suffix in BOLD_SUFFIXES {
+                let n = format!("{base} {suffix}");
+                if self.find(&n).is_some() {
+                    return Some(n);
+                }
+            }
+        }
+        // 2) 같은 이름으로 시작하고 굵기 낱말이 붙은 것 ("에스코어 드림 6 Bold")
+        let base = bases.last()?.to_lowercase();
+        for suffix in BOLD_SUFFIXES {
+            let suffix = suffix.to_lowercase();
+            let hit = self.all.iter().find(|f| {
+                let lower = f.name.to_lowercase();
+                lower.starts_with(&format!("{base} "))
+                    && lower[base.len()..].split_whitespace().any(|w| w == suffix)
+                    && lower[base.len()..]
+                        .split_whitespace()
+                        .all(|w| w == suffix || w.chars().all(|c| c.is_ascii_digit()))
+            });
+            if let Some(f) = hit {
+                return Some(f.name.clone());
+            }
+        }
+        None
+    }
+
+    /// 가변 글꼴이면 굵기 축(wght)을 `weight` 로 맞춘 복사본
+    fn with_weight(data: &Arc<FontData>, weight: f32) -> Option<Arc<FontData>> {
+        let font = skrifa::FontRef::from_index(&data.font, data.index).ok()?;
+        let axes = skrifa::MetadataProvider::axes(&font);
+        let axis = axes.iter().find(|a| a.tag() == skrifa::Tag::new(b"wght"))?;
+        let w = weight.clamp(axis.min_value(), axis.max_value());
+        let mut d = (**data).clone();
+        d.tweak.coords = egui::epaint::text::VariationCoords::new([(b"wght", w)]);
+        Some(Arc::new(d))
     }
 
     pub fn find(&self, name: &str) -> Option<&SystemFont> {
@@ -159,26 +230,55 @@ impl FontLibrary {
         dedup(&mut editor);
         defs.families.insert(editor_family(), editor);
 
-        // 문서 본문과 굵은 글씨
+        // 문서 본문과 굵은 글씨 (제목, **굵게**)
+        // 굵은 글씨는 고른 글꼴의 굵은 변형 → 가변 글꼴이면 굵기 축 → 둘 다 없으면 같은 글꼴을 겹쳐 그려 굵게(가짜 굵게).
+        // 예전처럼 다른 글꼴(맑은 고딕 굵게)로 바꾸지 않아서, 제목도 고른 글꼴 모양 그대로 나옵니다.
         let doc_name = doc_font.unwrap_or("Malgun Gothic").to_owned();
+        let doc_data = self.data_by_name(&doc_name);
         let mut doc = Vec::new();
-        if let Some(data) = self.data_by_name(&doc_name) {
+        if let Some(data) = &doc_data {
+            let data = Self::with_weight(data, 400.0).unwrap_or_else(|| data.clone());
             defs.font_data.insert("doc".to_owned(), data);
             doc.push("doc".to_owned());
         }
         doc.extend(fallbacks.iter().cloned());
         doc.extend(default_prop.iter().cloned());
         dedup(&mut doc);
+
+        self.fake_bold = false;
         let mut bold = Vec::new();
-        for name in [format!("{doc_name} Bold"), "Malgun Gothic Bold".to_owned(), "Segoe UI Bold".to_owned()] {
-            if let Some(data) = self.data_by_name(&name) {
-                let key = format!("bold:{name}");
-                defs.font_data.insert(key.clone(), data);
-                bold.push(key);
-                break;
+        let variant = self.bold_variant(&doc_name).and_then(|n| self.data_by_name(&n));
+        let real_bold = variant.or_else(|| doc_data.as_ref().and_then(|d| Self::with_weight(d, 700.0)));
+        match (real_bold, &doc_data) {
+            (Some(data), _) => {
+                defs.font_data.insert("bold".to_owned(), data);
+                bold.push("bold".to_owned());
+                // 그 글꼴에 한글이 없을 때 한글도 굵게 보이도록 굵은 한글 대체 글꼴을 먼저
+                if let Some(data) = self.data_by_name("Malgun Gothic Bold") {
+                    let key = "fallback:Malgun Gothic Bold".to_owned();
+                    defs.font_data.insert(key.clone(), data);
+                    bold.push(key);
+                }
+                bold.extend(doc.iter().cloned());
+            }
+            (None, Some(_)) => {
+                // 같은 글꼴 그대로 (편집기가 겹쳐 그려 굵게 보이게 함)
+                self.fake_bold = true;
+                bold.extend(doc.iter().cloned());
+            }
+            (None, None) => {
+                // 본문 글꼴을 못 읽었으면 예전처럼 맑은 고딕 굵게
+                for name in ["Malgun Gothic Bold", "Segoe UI Bold"] {
+                    if let Some(data) = self.data_by_name(name) {
+                        let key = format!("bold:{name}");
+                        defs.font_data.insert(key.clone(), data);
+                        bold.push(key);
+                        break;
+                    }
+                }
+                bold.extend(doc.iter().cloned());
             }
         }
-        bold.extend(doc.iter().cloned());
         dedup(&mut bold);
         defs.families.insert(doc_family(), doc);
         defs.families.insert(bold_family(), bold);
@@ -190,6 +290,33 @@ impl FontLibrary {
         align_fallbacks(&mut defs, editor_family(), "editor");
         defs
     }
+}
+
+/// 가짜 굵게: 글자를 오른쪽으로 몇 픽셀 겹쳐 그릴 거리들 (화면 점 단위).
+/// 글자가 클수록 더 두껍게, 흐려지지 않도록 화면 픽셀 단위로 옮깁니다.
+pub fn fake_bold_offsets(font_size: f32, pixels_per_point: f32) -> Vec<f32> {
+    let px = (font_size * 0.05 * pixels_per_point).round().clamp(1.0, 3.0) as usize;
+    (1..=px).map(|k| k as f32 / pixels_per_point).collect()
+}
+
+/// 가짜 굵게용: 이 글자 배치에서 굵은 글씨만 남기고 나머지는 투명하게 만든 복사본.
+/// 원래 배치와 글꼴·크기가 같아서 글자 자리가 똑같습니다. 굵은 글씨가 없으면 `None`.
+pub fn bold_only_job(job: &egui::text::LayoutJob) -> Option<egui::text::LayoutJob> {
+    let bold = bold_family();
+    let mut out = job.clone();
+    let mut any = false;
+    for s in &mut out.sections {
+        if s.format.font_id.family == bold && s.format.color.a() > 0 {
+            any = true;
+            s.format.background = egui::Color32::TRANSPARENT;
+        } else {
+            s.format.color = egui::Color32::TRANSPARENT;
+            s.format.background = egui::Color32::TRANSPARENT;
+            s.format.underline = egui::Stroke::NONE;
+            s.format.strikethrough = egui::Stroke::NONE;
+        }
+    }
+    any.then_some(out)
 }
 
 /// (ascent, 줄 높이) — 글꼴 크기(em) 대비 비율
@@ -345,4 +472,64 @@ fn enumerate_system_fonts() -> Vec<SystemFont> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fake_bold_offsets_scale_with_size() {
+        assert_eq!(fake_bold_offsets(16.0, 1.0), vec![1.0]);
+        assert_eq!(fake_bold_offsets(40.0, 1.0), vec![1.0, 2.0]);
+        assert_eq!(fake_bold_offsets(16.0, 2.0), vec![0.5, 1.0]);
+        assert_eq!(fake_bold_offsets(500.0, 1.0).len(), 3);
+    }
+
+    #[test]
+    fn bold_only_job_hides_everything_else() {
+        let mut job = egui::text::LayoutJob::default();
+        let fmt = |family: FontFamily| egui::TextFormat {
+            font_id: egui::FontId::new(16.0, family),
+            color: egui::Color32::RED,
+            ..Default::default()
+        };
+        job.append("보통 ", 0.0, fmt(doc_family()));
+        assert!(bold_only_job(&job).is_none());
+        job.append("굵게", 0.0, fmt(bold_family()));
+        let out = bold_only_job(&job).unwrap();
+        assert_eq!(out.text, job.text, "글자 자리는 그대로");
+        assert_eq!(out.sections[0].format.color, egui::Color32::TRANSPARENT);
+        assert_eq!(out.sections[1].format.color, egui::Color32::RED);
+    }
+}
+
+#[cfg(test)]
+mod survey {
+    use super::*;
+
+    /// 이 PC의 글꼴을 모두 읽어 보고 결과를 출력 (cargo test font_survey -- --ignored --nocapture)
+    #[test]
+    #[ignore]
+    fn font_survey() {
+        let mut lib = FontLibrary::load();
+        let names: Vec<String> = lib.fonts.iter().map(|f| f.name.clone()).collect();
+        let (mut unreadable, mut fake, mut real, mut variable) = (vec![], vec![], 0, vec![]);
+        for n in &names {
+            let Some(d) = lib.data_by_name(n) else {
+                unreadable.push(n.clone());
+                continue;
+            };
+            if lib.bold_variant(n).is_some() {
+                real += 1;
+            } else if FontLibrary::with_weight(&d, 700.0).is_some() {
+                variable.push(n.clone());
+            } else {
+                fake.push(n.clone());
+            }
+        }
+        println!("total {} / real bold {real} / variable {variable:?}", names.len());
+        println!("unreadable {unreadable:?}");
+        println!("fake bold ({}) {fake:?}", fake.len());
+    }
 }

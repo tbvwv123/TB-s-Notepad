@@ -5,6 +5,7 @@
 
 use super::media_cards::{MediaAction, MediaHub, audio_card, media_path, video_card};
 use super::*;
+use crate::fonts::fake_bold_offsets;
 use crate::media::MediaKind;
 
 /// 꾸밈을 그릴 때 필요한 편집기 상태
@@ -26,6 +27,8 @@ pub(super) struct DecoView<'a> {
     pub muted: Color32,
     pub accent: Color32,
     pub media: &'a MediaHub,
+    /// 굵은 글꼴이 없어 겹쳐 그려 굵게 보이게 하는지
+    pub fake_bold: bool,
 }
 
 /// 그린 결과와 사용자가 한 일
@@ -79,6 +82,7 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
                 image(ui, view, &img, &mut out);
             }
             Deco::Link { start, end, url } => link(ui, view, *start, *end, url, &mut out),
+            Deco::Table { rows, aligns, row_height } => table(ui, view, rows, aligns, *row_height, &mut out),
         }
     }
     out
@@ -144,6 +148,87 @@ fn task(v: &DecoView<'_>, at: usize, checked: bool, byte: usize, out: &mut DecoO
     }
     if v.clicked_at.is_some_and(|p| r.expand(3.0).contains(p)) {
         out.toggle_task = Some((byte, !checked));
+    }
+}
+
+/// 표: 칸 폭은 글자에 맞추되 본문 폭을 넘으면 줄이고, 넘치는 글자는 … 로 줄입니다.
+fn table(ui: &Ui, v: &DecoView<'_>, rows: &[live::TableRow], aligns: &[ImgAlign], row_h: f32, out: &mut DecoOutput) {
+    let (Some(first), Some(last)) = (rows.first(), rows.last()) else { return };
+    let top = v.pos(first.at).top();
+    let bottom = v.pos(last.at).top() + row_h;
+    if bottom < v.clip.top() || top > v.clip.bottom() {
+        return;
+    }
+    let cols = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0).max(aligns.len());
+    if cols == 0 {
+        return;
+    }
+    let body = FontId::new(v.font_size, doc_family());
+    let bold = FontId::new(v.font_size, bold_family());
+    let pad = 12.0;
+    let mut widths = vec![56.0f32; cols];
+    for r in rows {
+        let font = if r.header { &bold } else { &body };
+        for (c, cell) in r.cells.iter().enumerate() {
+            let w = ui.fonts_mut(|f| f.layout_no_wrap(cell.clone(), font.clone(), v.text).size().x);
+            widths[c] = widths[c].max(w + pad * 2.0);
+        }
+    }
+    let avail = (v.text_right - v.text_left).max(80.0);
+    let total: f32 = widths.iter().sum();
+    if total > avail {
+        widths.iter_mut().for_each(|w| *w *= avail / total);
+    }
+    let x0 = v.text_left;
+    let table_w: f32 = widths.iter().sum();
+    let outer = egui::Rect::from_min_max(egui::pos2(x0, top), egui::pos2(x0 + table_w, bottom));
+    let line = Stroke::new(1.0, mix(v.bg, v.text, 0.16));
+
+    // 머리 행 배경과 줄무늬
+    for (i, r) in rows.iter().enumerate() {
+        let y = v.pos(r.at).top();
+        let row = egui::Rect::from_x_y_ranges(outer.x_range(), y..=y + row_h);
+        let radius = if i == 0 { egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 } } else { egui::CornerRadius::ZERO };
+        if r.header {
+            out.bg.push(Shape::rect_filled(row, radius, mix(v.bg, v.text, 0.06)));
+        }
+        if i > 0 {
+            let s = if rows[i - 1].header { Stroke::new(1.3, mix(v.bg, v.text, 0.28)) } else { line };
+            out.fg.push(Shape::line_segment([egui::pos2(outer.left(), y), egui::pos2(outer.right(), y)], s));
+        }
+    }
+    let mut x = x0;
+    for w in &widths[..cols - 1] {
+        x += w;
+        out.fg.push(Shape::line_segment([egui::pos2(x, top), egui::pos2(x, bottom)], line));
+    }
+    out.fg.push(Shape::rect_stroke(outer, 6.0, line, egui::StrokeKind::Inside));
+
+    // 글자
+    for r in rows {
+        let y = v.pos(r.at).top();
+        let font = if r.header { &bold } else { &body };
+        let mut x = x0;
+        for (c, w) in widths.iter().enumerate() {
+            if let Some(cell) = r.cells.get(c).filter(|s| !s.is_empty()) {
+                let mut job = egui::text::LayoutJob::simple_singleline(cell.clone(), font.clone(), v.text);
+                job.wrap = egui::text::TextWrapping::truncate_at_width((w - pad * 2.0).max(8.0));
+                let g = ui.fonts_mut(|f| f.layout_job(job));
+                let gx = match aligns.get(c).copied().unwrap_or(ImgAlign::Left) {
+                    ImgAlign::Left => x + pad,
+                    ImgAlign::Center => x + (w - g.size().x) / 2.0,
+                    ImgAlign::Right => x + w - pad - g.size().x,
+                };
+                let pos = egui::pos2(gx, y + (row_h - g.size().y) / 2.0);
+                if r.header && v.fake_bold {
+                    for dx in fake_bold_offsets(v.font_size, ui.ctx().pixels_per_point()) {
+                        out.fg.push(Shape::galley(pos + egui::vec2(dx, 0.0), g.clone(), v.text));
+                    }
+                }
+                out.fg.push(Shape::galley(pos, g, v.text));
+            }
+            x += w;
+        }
     }
 }
 
