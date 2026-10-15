@@ -247,21 +247,19 @@ pub(super) fn image_line_at(text: &str, line: usize) -> Option<(String, Option<u
     Some((img.dest.to_owned(), img.width, img.align))
 }
 
-/// 선택한 그림 위에 뜨는 도구 막대: 크기 · 위치 · 지우기
+/// 선택한 그림 위에 뜨는 도구 막대: 크기 · 위치 · 지우기.
+/// 평소에는 그림 바로 위에 뜨고, 그 자리가 편집 영역 위로 벗어나면 편집 영역 맨 위(서식 도구 바로 아래)에 붙습니다.
 pub(super) fn image_toolbar_ui(
     ctx: &egui::Context,
     img: egui::Rect,
+    editor_top: f32,
     line: usize,
     align: ImgAlign,
     width: Option<u32>,
 ) -> Option<ImageAction> {
     let mut action = None;
     let h = 44.0;
-    let pos = if img.top() - h - 6.0 > ctx.content_rect().top() + 90.0 {
-        egui::pos2(img.left(), img.top() - h - 6.0)
-    } else {
-        img.left_top() + egui::vec2(8.0, 8.0)
-    };
+    let pos = egui::pos2(img.left(), (img.top() - h - 6.0).max(editor_top + 6.0));
     egui::Area::new(Id::new("image_toolbar")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         Frame::popup(ui.style()).inner_margin(Margin::same(5)).corner_radius(10).show(ui, |ui| {
             let base = ui.visuals().window_fill;

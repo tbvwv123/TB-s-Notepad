@@ -90,6 +90,8 @@ impl NotepadApp {
         let mut new_cursor = None;
         let mut editor_focused = false;
         let mut decorations = decorations::DecoOutput::default();
+        // 편집 영역(스크롤되는 본문)의 맨 위: 그림 도구 막대가 서식 도구와 겹치지 않게
+        let mut editor_top = f32::NEG_INFINITY;
 
         let scroll = if wrap { ScrollArea::vertical() } else { ScrollArea::both() };
         scroll.id_salt(("editor_scroll", doc.id)).auto_shrink([false, false]).show(ui, |ui| {
@@ -144,6 +146,7 @@ impl NotepadApp {
                 let origin = (output.galley_pos - egui::vec2(galley.rect.left(), 0.0)).to_vec2();
                 let full = response.rect;
                 let clip = ui.clip_rect();
+                editor_top = clip.top();
                 let text_left = output.galley_pos.x;
                 let text_right = full.right() - EDITOR_MARGIN.right as f32;
                 let pos = |ci: usize| galley.pos_from_cursor(CCursor::new(ci)).translate(origin);
@@ -255,7 +258,7 @@ impl NotepadApp {
         let mut image_action = decorations.image_action;
         if let Some((r, line, align)) = decorations.image_toolbar {
             let current = image_line_at(&self.docs[self.active].text, line).and_then(|(_, w, _)| w);
-            if let Some(a) = image_toolbar_ui(&ctx, r, line, align, current) {
+            if let Some(a) = image_toolbar_ui(&ctx, r, editor_top, line, align, current) {
                 image_action = Some(a);
             }
         }
