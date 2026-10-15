@@ -75,6 +75,7 @@ def main():
     lines = [
         "// 자동 생성: python scripts/gen-i18n.py (scripts/i18n_strings.py 를 고친 뒤 다시 실행)",
         "// (한국어, English, 中文, 日本語)",
+        "#[rustfmt::skip]",
         "pub const ROWS: &[(&str, &str, &str, &str)] = &[",
     ]
     for k in sorted(T):

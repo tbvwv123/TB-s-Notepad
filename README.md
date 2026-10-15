@@ -211,6 +211,8 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1   # → dist\TB-Notepad.exe
 cargo test
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report issues or help with translations and code.
+
 UI text lives in `scripts/i18n_strings.py`; run `python scripts/gen-i18n.py` after editing it. Translation fixes are welcome!
 
 ## License

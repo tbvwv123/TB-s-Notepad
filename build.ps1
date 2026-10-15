@@ -12,6 +12,11 @@ if ($mingw) { $extra += (Join-Path $mingw.FullName "mingw64\bin") }
 $env:PATH = ($extra -join ";") + ";" + $env:PATH
 
 Set-Location $PSScriptRoot
+# 프로젝트 경로에 작은따옴표(예: "TB's Notepad")가 있으면 MinGW 링커가 깨지므로
+# 빌드 결과물을 따옴표 없는 곳(%LOCALAPPDATA%\tb-notepad\target)에 둡니다.
+if ($PSScriptRoot.Contains("'") -and -not $env:CARGO_TARGET_DIR) {
+    $env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA "tb-notepad\target"
+}
 cargo build --release
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

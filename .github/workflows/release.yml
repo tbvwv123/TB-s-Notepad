@@ -1,0 +1,50 @@
+# 버전 태그(v*)를 올리면 exe 를 빌드해 그 릴리스에 붙입니다.
+# 릴리스가 아직 없으면 초안(draft)으로 만들어 두니, 설명을 쓰고 공개하면 됩니다.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust (GNU toolchain)
+        shell: pwsh
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup default stable-x86_64-pc-windows-gnu
+
+      - name: MinGW (windres, dlltool) on PATH
+        shell: pwsh
+        run: |
+          $bin = "C:\mingw64\bin"
+          if (-not (Test-Path "$bin\windres.exe")) {
+            choco install mingw -y --no-progress
+            $bin = "C:\ProgramData\mingw64\mingw64\bin"
+          }
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Copy-Item target\release\tb-notepad.exe TB-Notepad.exe
+          $hash = (Get-FileHash TB-Notepad.exe -Algorithm SHA256).Hash
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --draft --title "TB's Notepad $($tag.TrimStart('v'))" --notes "SHA-256: ``$hash``"
+          }
+          gh release upload $tag "TB-Notepad.exe#TB-Notepad.exe (Windows 64-bit)" --clobber
+          "SHA-256: $hash"

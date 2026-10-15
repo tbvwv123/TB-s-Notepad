@@ -1,4 +1,0 @@
-# 프로젝트 경로의 작은따옴표(TB's)가 MinGW 링커 인자 파일을 깨뜨리므로
-# 빌드 결과물은 따옴표 없는 경로에 둡니다.
-[build]
-target-dir = "C:/Users/User/AppData/Local/tb-notepad/target"

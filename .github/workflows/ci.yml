@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust (GNU toolchain)
+        shell: pwsh
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal -c clippy -c rustfmt
+          rustup default stable-x86_64-pc-windows-gnu
+
+      - name: MinGW (windres, dlltool) on PATH
+        shell: pwsh
+        run: |
+          $bin = "C:\mingw64\bin"
+          if (-not (Test-Path "$bin\windres.exe")) {
+            choco install mingw -y --no-progress
+            $bin = "C:\ProgramData\mingw64\mingw64\bin"
+          }
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets
+
+      - name: Test
+        run: cargo test
+
+      - name: Translation table is up to date
+        shell: pwsh
+        run: |
+          python scripts/gen-i18n.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- src/i18n_table.rs

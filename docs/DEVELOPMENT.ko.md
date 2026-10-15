@@ -20,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 테스트: `cargo test`
 
-- 폴더 이름의 작은따옴표(`TB's`)가 MinGW 링커를 깨뜨리기 때문에 `.cargo/config.toml`에서 빌드 결과물 위치를 `%LOCALAPPDATA%\tb-notepad\target`으로 옮겨 두었습니다.
+- 프로젝트 경로에 작은따옴표(예: `TB's Notepad`)가 있으면 MinGW 링커가 깨집니다. 이때 `build.ps1`은 `%LOCALAPPDATA%\tb-notepad\target`에 빌드하고, 그런 폴더에서 `cargo`를 직접 쓸 때는 `CARGO_TARGET_DIR`을 같은 곳으로 지정하세요 (또는 저장소에 올리지 않는 `.cargo/config.toml`에 `target-dir`).
 - 로고는 `python scripts/make-logo.py`로 다시 만들 수 있습니다(`assets/logo.png`, `assets/logo.ico`). 실행 파일 아이콘은 `build.rs`가 windres로 `assets/app.rc`를 넣습니다.
 - 실행 파일은 Windows에 기본으로 들어 있는 DLL만 써서, 다른 PC에 exe 하나만 복사해도 실행됩니다.
 
@@ -47,6 +47,12 @@ winit보다 먼저 키 입력을 보고, "텍스트는 없고 그림/파일이 �
 번역은 `scripts/i18n_strings.py` 에 있고, 고친 뒤 `python scripts/gen-i18n.py` 를 실행하면 `src/i18n_table.rs` 를 다시 만들고
 번역이 빠진 문구나 `{}` 개수가 다른 번역을 알려 줍니다. 언어는 설정 › 편집기에서 고르며, "자동"이면 Windows 화면 언어를 따릅니다.
 처음 실행할 때 만드는 안내 메모는 `samples/welcome/<언어>.md` 입니다.
+
+## 릴리스
+
+버전 태그를 올리면 (`git tag -a v0.3.0 -m ... && git push origin v0.3.0`) `.github/workflows/release.yml` 이
+GitHub Actions 에서 `TB-Notepad.exe` 를 빌드해 그 릴리스에 붙입니다. 릴리스가 아직 없으면 초안으로 만들어 둡니다.
+먼저 `Cargo.toml` 과 `assets/app.rc` 의 버전을 올리세요. `.github/workflows/ci.yml` 은 푸시할 때마다 fmt · clippy · 테스트 · 번역 확인을 돌립니다.
 
 ## 코드 구조
 

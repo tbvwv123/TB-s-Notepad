@@ -1,0 +1,48 @@
+name: Bug report / 버그 신고
+description: Something doesn't work as expected / 기대한 대로 동작하지 않아요
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Any language is fine — English, 한국어, 中文, 日本語.
+        알려 주셔서 고맙습니다! 어느 언어로 쓰셔도 됩니다.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / 무슨 일이 있었나요?
+      description: What did you do, what did you expect, and what happened instead? / 무엇을 했고, 어떻게 될 줄 알았는데, 실제로는 어땠나요?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 다시 해 보는 방법
+      placeholder: |
+        1. ...
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: Version / 버전
+      description: ⋯ › About (설정 › 정보)
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version / Windows 버전
+      placeholder: "Windows 11 24H2"
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash log / 오류 기록 (crash-previous.log)
+      description: |
+        If the app closed because of an error, paste the log it pointed you to (in %APPDATA%\tb-notepad).
+        오류로 꺼졌다면, 다음 실행 때 알려 준 기록 파일(%APPDATA%\tb-notepad 안)의 내용을 붙여 주세요.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or notes / 스크린샷이나 덧붙일 말

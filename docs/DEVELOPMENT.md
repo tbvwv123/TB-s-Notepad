@@ -20,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 Tests: `cargo test`
 
-- The apostrophe in the folder name (`TB's`) breaks the MinGW linker, so `.cargo/config.toml` moves the build output to `%LOCALAPPDATA%\tb-notepad\target`.
+- An apostrophe in the project path (like `TB's Notepad`) breaks the MinGW linker. `build.ps1` then builds into `%LOCALAPPDATA%\tb-notepad\target`; when running `cargo` yourself from such a folder, set `CARGO_TARGET_DIR` the same way (or put `target-dir` in an untracked `.cargo/config.toml`).
 - Regenerate the logo with `python scripts/make-logo.py` (`assets/logo.png`, `assets/logo.ico`). `build.rs` embeds `assets/app.rc` (icon and version info) with windres.
 - The exe only depends on DLLs that ship with Windows, so copying the single exe to another PC is enough.
 
@@ -49,6 +49,12 @@ The text itself is never changed (so TextEdit can keep editing it); only its loo
 Symbols such as `**` and `#` are hidden as nearly zero-width transparent glyphs, while bullets, checkboxes, quote bars, tables, images
 and audio/video cards are painted separately at the laid-out glyph positions (`src/app/decorations.rs`).
 Rows that need height, like images and tables, reserve it through the line height of their hidden glyphs.
+
+## Releases
+
+Pushing a version tag (`git tag -a v0.3.0 -m ... && git push origin v0.3.0`) runs `.github/workflows/release.yml`:
+it builds `TB-Notepad.exe` on GitHub Actions and attaches it to that release, creating a draft release if there isn't one yet.
+Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/ci.yml` runs fmt, clippy, tests and the translation check on every push.
 
 ## Code layout
 

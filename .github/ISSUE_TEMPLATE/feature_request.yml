@@ -1,0 +1,24 @@
+name: Feature idea / 기능 제안
+description: Suggest something that would make TB's Notepad better / 이런 기능이 있으면 좋겠어요
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Any language is fine — English, 한국어, 中文, 日本語. / 어느 언어로 쓰셔도 됩니다.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do? / 무엇을 하고 싶으신가요?
+      description: Describe the situation or the problem first, not only the solution. / 해결 방법보다 어떤 상황인지를 먼저 알려 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work? / 어떻게 되면 좋을까요?
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else / 그 밖에
+      description: Other apps that do it well, sketches, screenshots… / 잘 되는 다른 앱, 그림, 스크린샷 등

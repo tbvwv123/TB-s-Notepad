@@ -211,6 +211,8 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1   # → dist\TB-Notepad.exe
 cargo test
 ```
 
+問題の報告・翻訳・コードへの貢献については [CONTRIBUTING.md](CONTRIBUTING.md) をご覧ください。
+
 画面の文言の翻訳は `scripts/i18n_strings.py` にあります。編集したら `python scripts/gen-i18n.py` を実行してください。翻訳の改善も歓迎します！
 
 ## ライセンス
