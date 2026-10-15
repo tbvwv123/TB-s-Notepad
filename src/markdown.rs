@@ -137,7 +137,9 @@ pub fn highlight(text: &str, st: &HighlightStyle) -> LayoutJob {
         // --- 구분선
         let compact: String = trimmed.chars().filter(|ch| !ch.is_whitespace()).collect();
         if compact.len() >= 3
-            && (compact.chars().all(|ch| ch == '-') || compact.chars().all(|ch| ch == '*') || compact.chars().all(|ch| ch == '_'))
+            && (compact.chars().all(|ch| ch == '-')
+                || compact.chars().all(|ch| ch == '*')
+                || compact.chars().all(|ch| ch == '_'))
         {
             job.append(line, 0.0, st.fmt(st.muted));
             continue;
@@ -503,7 +505,8 @@ pub fn collect_images(text: &str, old_base: Option<&Path>, doc_dir: &Path, folde
                 continue;
             }
             let name = abs.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "image.png".into());
-            let same_size = |t: &Path| std::fs::metadata(t).ok().map(|m| m.len()) == std::fs::metadata(&abs).ok().map(|m| m.len());
+            let same_size =
+                |t: &Path| std::fs::metadata(t).ok().map(|m| m.len()) == std::fs::metadata(&abs).ok().map(|m| m.len());
             let mut target = target_dir.join(&name);
             let mut n = 2;
             while target.exists() && !same_size(&target) {
@@ -655,13 +658,7 @@ fn map_lines(text: &mut String, start: usize, end: usize, f: impl Fn(&str, usize
 fn toggle_prefix(text: &mut String, start: usize, end: usize, prefix: &str) -> Range<usize> {
     let span = line_span(text, start, end);
     let all = text[span.clone()].split('\n').all(|l| l.starts_with(prefix));
-    map_lines(text, start, end, |line, _| {
-        if all {
-            line[prefix.len()..].to_owned()
-        } else {
-            format!("{prefix}{line}")
-        }
-    })
+    map_lines(text, start, end, |line, _| if all { line[prefix.len()..].to_owned() } else { format!("{prefix}{line}") })
 }
 
 fn numbered_prefix_len(line: &str) -> Option<usize> {
@@ -698,11 +695,7 @@ pub fn find_all(haystack: &str, needle: &str, match_case: bool) -> Vec<Range<usi
     // 소문자로 접은 문자열에서 찾고, 원래 위치로 되돌립니다.
     let (folded, map) = fold(haystack);
     let (needle, _) = fold(needle);
-    folded
-        .match_indices(needle.as_str())
-        .map(|(i, m)| map[i]..map[i + m.len()])
-        .filter(|r| r.start < r.end)
-        .collect()
+    folded.match_indices(needle.as_str()).map(|(i, m)| map[i]..map[i + m.len()]).filter(|r| r.start < r.end).collect()
 }
 
 fn fold(s: &str) -> (String, Vec<usize>) {
@@ -801,14 +794,18 @@ mod tests {
 
     #[test]
     fn html_keeps_image_size() {
-        let html = to_html("![a](b.png \"width=40% align=center\")\n", "t", &crate::settings::Settings::default().palette());
+        let html =
+            to_html("![a](b.png \"width=40% align=center\")\n", "t", &crate::settings::Settings::default().palette());
         assert!(html.contains(r#"<p style="text-align:center"><img src="b.png" alt="a" width="40%"></p>"#), "{html}");
     }
 
     #[test]
     fn highlight_keeps_all_text() {
         let style = HighlightStyle::new(
-            &crate::settings::Palette::preset(crate::settings::ThemePreset::Dark, &crate::settings::Settings::default().custom_palette),
+            &crate::settings::Palette::preset(
+                crate::settings::ThemePreset::Dark,
+                &crate::settings::Settings::default().custom_palette,
+            ),
             FontId::monospace(14.0),
             1.2,
             true,

@@ -60,7 +60,9 @@ mod imp {
             }
             let png: Vec<u16> = "PNG\0".encode_utf16().collect();
             let png_format = RegisterClipboardFormatW(png.as_ptr());
-            [CF_DIB, CF_DIBV5, CF_BITMAP, CF_HDROP, png_format].iter().any(|&f| f != 0 && IsClipboardFormatAvailable(f) != 0)
+            [CF_DIB, CF_DIBV5, CF_BITMAP, CF_HDROP, png_format]
+                .iter()
+                .any(|&f| f != 0 && IsClipboardFormatAvailable(f) != 0)
         }
     }
 

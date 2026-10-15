@@ -230,8 +230,10 @@ impl Palette {
         v.menu_corner_radius = CornerRadius::same(10);
         v.window_stroke = Stroke::new(1.0, hairline);
         let shadow_alpha = if self.dark { 110 } else { 38 };
-        v.window_shadow = Shadow { offset: [0, 10], blur: 32, spread: 0, color: egui::Color32::from_black_alpha(shadow_alpha) };
-        v.popup_shadow = Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(shadow_alpha) };
+        v.window_shadow =
+            Shadow { offset: [0, 10], blur: 32, spread: 0, color: egui::Color32::from_black_alpha(shadow_alpha) };
+        v.popup_shadow =
+            Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(shadow_alpha) };
         v.striped = false;
         v.indent_has_left_vline = false;
         v.collapsing_header_frame = false;

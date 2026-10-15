@@ -245,7 +245,11 @@ impl Sidebar {
                 let mut done = None;
                 ui.horizontal(|ui| {
                     ui.add_space(10.0 + depth as f32 * 14.0 + 22.0);
-                    let resp = ui.add(TextEdit::singleline(text).desired_width(ui.available_width() - 8.0).margin(egui::Margin::symmetric(6, 3)));
+                    let resp = ui.add(
+                        TextEdit::singleline(text)
+                            .desired_width(ui.available_width() - 8.0)
+                            .margin(egui::Margin::symmetric(6, 3)),
+                    );
                     if *focus {
                         resp.request_focus();
                         *focus = false;
@@ -322,7 +326,14 @@ impl Sidebar {
         }
     }
 
-    fn search_results(&mut self, ui: &mut Ui, roots: &[PathBuf], active: Option<&Path>, actions: &mut Vec<Action>, k: Colors) {
+    fn search_results(
+        &mut self,
+        ui: &mut Ui,
+        roots: &[PathBuf],
+        active: Option<&Path>,
+        actions: &mut Vec<Action>,
+        k: Colors,
+    ) {
         let q = self.query.trim().to_lowercase();
         let stale = self.search.as_ref().is_none_or(|(sq, t, _)| *sq != q || t.elapsed() > Duration::from_secs(3));
         if stale {
@@ -455,7 +466,13 @@ fn tree_row(ui: &mut Ui, depth: usize, icon: RowIcon, label: &str, active: bool,
     match icon {
         RowIcon::Folder { open } => {
             let chev = if open { Icon::ChevronDown } else { Icon::ChevronRight };
-            ui_kit::paint_icon(p, Rect::from_center_size(pos2(x + 6.0, cy), vec2(11.0, 11.0)), chev, icon_color, k.panel);
+            ui_kit::paint_icon(
+                p,
+                Rect::from_center_size(pos2(x + 6.0, cy), vec2(11.0, 11.0)),
+                chev,
+                icon_color,
+                k.panel,
+            );
         }
         RowIcon::Note => {
             p.circle_stroke(pos2(x + 6.0, cy), 4.5, egui::Stroke::new(1.3, icon_color));
@@ -485,12 +502,24 @@ fn root_header(ui: &mut Ui, name: &str, collapsed: bool, k: Colors) -> Response 
     if hovered {
         p.rect_filled(rect, 8.0, mix(k.panel, k.text, 0.04));
     }
-    ui_kit::paint_icon(p, Rect::from_center_size(pos2(rect.left() + 16.0, cy), vec2(15.0, 15.0)), Icon::Folder, k.muted, k.panel);
+    ui_kit::paint_icon(
+        p,
+        Rect::from_center_size(pos2(rect.left() + 16.0, cy), vec2(15.0, 15.0)),
+        Icon::Folder,
+        k.muted,
+        k.panel,
+    );
     let galley = elided(ui, name, 12.5, rect.width() - 80.0, k.muted);
     ui.painter().galley(pos2(rect.left() + 30.0, cy - galley.size().y / 2.0), galley, k.muted);
     if hovered {
         let chev = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
-        ui_kit::paint_icon(ui.painter(), Rect::from_center_size(pos2(rect.right() - 44.0, cy), vec2(10.0, 10.0)), chev, k.muted, k.panel);
+        ui_kit::paint_icon(
+            ui.painter(),
+            Rect::from_center_size(pos2(rect.right() - 44.0, cy), vec2(10.0, 10.0)),
+            chev,
+            k.muted,
+            k.panel,
+        );
     }
     resp
 }
@@ -520,7 +549,13 @@ fn small_icon_at(ui: &mut Ui, row: &Response, icon: Icon, tip: &str, k: Colors) 
 
 fn section_label(ui: &mut Ui, text: &str, k: Colors) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-    ui.painter().text(pos2(rect.left() + 10.0, rect.center().y), Align2::LEFT_CENTER, text, FontId::proportional(12.0), k.muted);
+    ui.painter().text(
+        pos2(rect.left() + 10.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        FontId::proportional(12.0),
+        k.muted,
+    );
 }
 
 fn action_row(ui: &mut Ui, icon: Icon, label: &str, shortcut: &str, k: Colors) -> Response {
@@ -556,11 +591,23 @@ fn search_box(ui: &mut Ui, query: &mut String, k: Colors) {
         )
     });
     let r = resp.response.rect;
-    ui_kit::paint_icon(ui.painter(), Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(13.0, 13.0)), Icon::Search, k.muted, k.panel);
+    ui_kit::paint_icon(
+        ui.painter(),
+        Rect::from_center_size(pos2(r.left() + 16.0, r.center().y), vec2(13.0, 13.0)),
+        Icon::Search,
+        k.muted,
+        k.panel,
+    );
     if !query.is_empty() {
         let x = Rect::from_center_size(pos2(r.right() - 14.0, r.center().y), vec2(16.0, 16.0));
         let xr = ui.interact(x, resp.response.id.with("clear"), Sense::click());
-        ui_kit::paint_icon(ui.painter(), x.shrink(3.0), Icon::Close, if xr.hovered() { k.text } else { k.muted }, k.panel);
+        ui_kit::paint_icon(
+            ui.painter(),
+            x.shrink(3.0),
+            Icon::Close,
+            if xr.hovered() { k.text } else { k.muted },
+            k.panel,
+        );
         if xr.clicked() {
             query.clear();
         }

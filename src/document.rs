@@ -20,13 +20,8 @@ pub enum TextEncoding {
 }
 
 impl TextEncoding {
-    pub const ALL: [TextEncoding; 5] = [
-        TextEncoding::Utf8,
-        TextEncoding::Utf8Bom,
-        TextEncoding::Utf16Le,
-        TextEncoding::Utf16Be,
-        TextEncoding::EucKr,
-    ];
+    pub const ALL: [TextEncoding; 5] =
+        [TextEncoding::Utf8, TextEncoding::Utf8Bom, TextEncoding::Utf16Le, TextEncoding::Utf16Be, TextEncoding::EucKr];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -158,7 +153,8 @@ impl Document {
         let (text, encoding, line_ending) = parse(&snap.bytes);
         // 줄바꿈이 없는 파일이면: 처음 열 때는 플랫폼 기본값, 다시 읽을 때는 쓰던 방식 그대로
         let first_load = self.disk_hash.is_none() && self.text.is_empty();
-        self.line_ending = line_ending.unwrap_or(if first_load { LineEnding::platform_default() } else { self.line_ending });
+        self.line_ending =
+            line_ending.unwrap_or(if first_load { LineEnding::platform_default() } else { self.line_ending });
         self.text = text;
         self.encoding = encoding;
         self.dirty = false;
@@ -252,10 +248,7 @@ impl Document {
         }
 
         // 임시 파일에 쓴 뒤 교체해서, 저장 도중 문제가 생겨도 원본이 망가지지 않게 합니다.
-        let tmp = path.with_extension(format!(
-            "{}.tbtmp",
-            path.extension().and_then(|e| e.to_str()).unwrap_or("")
-        ));
+        let tmp = path.with_extension(format!("{}.tbtmp", path.extension().and_then(|e| e.to_str()).unwrap_or("")));
         std::fs::write(&tmp, &bytes)?;
         if let Err(err) = std::fs::rename(&tmp, path) {
             let _ = std::fs::remove_file(&tmp);
@@ -272,10 +265,9 @@ impl Document {
 
     pub fn title(&self) -> String {
         match &self.path {
-            Some(p) => p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| p.display().to_string()),
+            Some(p) => {
+                p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
+            }
             None if self.untitled_index <= 1 => "제목 없음".to_owned(),
             None => format!("제목 없음 {}", self.untitled_index),
         }
@@ -283,10 +275,7 @@ impl Document {
 
     pub fn is_markdown(&self) -> bool {
         match self.path.as_ref().and_then(|p| p.extension()).and_then(|e| e.to_str()) {
-            Some(ext) => matches!(
-                ext.to_ascii_lowercase().as_str(),
-                "md" | "markdown" | "mdown" | "mkd" | "mdx"
-            ),
+            Some(ext) => matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdown" | "mkd" | "mdx"),
             // 새 문서는 마크다운으로 취급 (일반 텍스트도 그대로 잘 보입니다)
             None => true,
         }
@@ -334,13 +323,8 @@ pub fn remap_char_index(old: &str, new: &str, index: usize) -> usize {
     let new_chars: Vec<char> = new.chars().collect();
     let prefix = old_chars.iter().zip(&new_chars).take_while(|(a, b)| a == b).count();
     let max_suffix = old_chars.len().min(new_chars.len()) - prefix;
-    let suffix = old_chars
-        .iter()
-        .rev()
-        .zip(new_chars.iter().rev())
-        .take(max_suffix)
-        .take_while(|(a, b)| a == b)
-        .count();
+    let suffix =
+        old_chars.iter().rev().zip(new_chars.iter().rev()).take(max_suffix).take_while(|(a, b)| a == b).count();
     let index = index.min(old_chars.len());
     if index <= prefix {
         index

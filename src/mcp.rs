@@ -40,10 +40,10 @@ pub fn run() {
         if line.trim().is_empty() {
             continue;
         }
-        if let Some(reply) = server.handle_line(&line) {
-            if writeln!(out, "{reply}").and_then(|_| out.flush()).is_err() {
-                break;
-            }
+        if let Some(reply) = server.handle_line(&line)
+            && writeln!(out, "{reply}").and_then(|_| out.flush()).is_err()
+        {
+            break;
         }
     }
 }
@@ -90,7 +90,8 @@ impl Server {
     }
 
     fn call_tool(&self, params: &Value) -> Result<Value, (i64, String)> {
-        let name = params.get("name").and_then(Value::as_str).ok_or((-32602, "도구 이름(name)이 없습니다".to_owned()))?;
+        let name =
+            params.get("name").and_then(Value::as_str).ok_or((-32602, "도구 이름(name)이 없습니다".to_owned()))?;
         let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
         let vault = self.vault();
         let outcome = match name {
@@ -100,10 +101,12 @@ impl Server {
             "create_note" => {
                 req_str(&args, "path").and_then(|p| vault.create_note(p, opt_str(&args, "content").unwrap_or("")))
             }
-            "update_note" => req_str(&args, "path")
-                .and_then(|p| req_str(&args, "content").and_then(|c| vault.update_note(p, c))),
-            "append_to_note" => req_str(&args, "path")
-                .and_then(|p| req_str(&args, "content").and_then(|c| vault.append_to_note(p, c))),
+            "update_note" => {
+                req_str(&args, "path").and_then(|p| req_str(&args, "content").and_then(|c| vault.update_note(p, c)))
+            }
+            "append_to_note" => {
+                req_str(&args, "path").and_then(|p| req_str(&args, "content").and_then(|c| vault.append_to_note(p, c)))
+            }
             _ => return Err((-32602, format!("알 수 없는 도구: {name}"))),
         };
         // 도구 실행 중 생긴 문제는 JSON-RPC 오류가 아니라 결과의 isError로 알려서 AI가 읽고 고칠 수 있게 합니다.
@@ -147,7 +150,8 @@ fn req_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
 
 fn tool_definitions() -> Value {
     let path = json!({ "type": "string", "description": "메모 경로. 예: 'TB Notes/일기/10월.md' (list_notes에 나오는 그대로)" });
-    let folder = json!({ "type": "string", "description": "이 폴더 안만 봅니다. 예: 'TB Notes/일기'. 비우면 모든 메모 폴더" });
+    let folder =
+        json!({ "type": "string", "description": "이 폴더 안만 봅니다. 예: 'TB Notes/일기'. 비우면 모든 메모 폴더" });
     let content = json!({ "type": "string", "description": "메모 내용 (마크다운)" });
     json!([
         {
@@ -280,14 +284,15 @@ impl Vault {
             }
         }
         // 맨 앞이 메모 폴더 이름이면 그 폴더, 폴더가 하나뿐이면 이름을 빼도 됩니다.
-        let (root, rest) = match parts.first().and_then(|first| self.roots.iter().find(|r| r.name.eq_ignore_ascii_case(first))) {
-            Some(root) => (root, &parts[1..]),
-            None if self.roots.len() == 1 => (&self.roots[0], &parts[..]),
-            None => {
-                let names: Vec<&str> = self.roots.iter().map(|r| r.name.as_str()).collect();
-                return Err(format!("경로는 메모 폴더 이름으로 시작해야 합니다: {}", names.join(", ")));
-            }
-        };
+        let (root, rest) =
+            match parts.first().and_then(|first| self.roots.iter().find(|r| r.name.eq_ignore_ascii_case(first))) {
+                Some(root) => (root, &parts[1..]),
+                None if self.roots.len() == 1 => (&self.roots[0], &parts[..]),
+                None => {
+                    let names: Vec<&str> = self.roots.iter().map(|r| r.name.as_str()).collect();
+                    return Err(format!("경로는 메모 폴더 이름으로 시작해야 합니다: {}", names.join(", ")));
+                }
+            };
         let mut path = root.dir.clone();
         for part in rest {
             path.push(part);
@@ -330,7 +335,9 @@ impl Vault {
                 }
                 Ok(vec![target])
             }
-            None if self.roots.is_empty() => Err("메모 폴더가 없습니다. TB's Notepad에서 메모 폴더를 추가해 주세요.".to_owned()),
+            None if self.roots.is_empty() => {
+                Err("메모 폴더가 없습니다. TB's Notepad에서 메모 폴더를 추가해 주세요.".to_owned())
+            }
             None => Ok(self.roots.iter().map(|root| Target { root, path: root.dir.clone() }).collect()),
         }
     }
@@ -347,7 +354,9 @@ impl Vault {
             self.tree(scope.root, &scope.path, 1, &mut out, &mut count);
         }
         if count >= MAX_LIST_ENTRIES {
-            out.push_str(&format!("… 항목이 많아 {MAX_LIST_ENTRIES}개까지만 보여 줍니다. folder로 범위를 좁혀 주세요.\n"));
+            out.push_str(&format!(
+                "… 항목이 많아 {MAX_LIST_ENTRIES}개까지만 보여 줍니다. folder로 범위를 좁혀 주세요.\n"
+            ));
         }
         Ok(out)
     }
@@ -397,7 +406,10 @@ impl Vault {
         }
         out.sort_by(|a, b| {
             b.1.cmp(&a.1).then_with(|| {
-                crate::sidebar::natural_cmp(&a.0.file_name().unwrap_or_default().to_string_lossy(), &b.0.file_name().unwrap_or_default().to_string_lossy())
+                crate::sidebar::natural_cmp(
+                    &a.0.file_name().unwrap_or_default().to_string_lossy(),
+                    &b.0.file_name().unwrap_or_default().to_string_lossy(),
+                )
             })
         });
         out
@@ -448,7 +460,9 @@ impl Vault {
                 }
                 found += 1;
                 if found > MAX_SEARCH_RESULTS {
-                    out.push_str(&format!("… {MAX_SEARCH_RESULTS}개까지만 보여 줍니다. 검색어를 더 자세히 써 주세요.\n"));
+                    out.push_str(&format!(
+                        "… {MAX_SEARCH_RESULTS}개까지만 보여 줍니다. 검색어를 더 자세히 써 주세요.\n"
+                    ));
                     break 'scopes;
                 }
                 out.push_str(&self.display(scope.root, &path));
@@ -471,7 +485,9 @@ impl Vault {
         let target = self.resolve_note(input)?;
         let shown = self.display(target.root, &target.path);
         if target.path.exists() {
-            return Err(format!("이미 있는 파일입니다: {shown}. 내용을 바꾸려면 update_note나 append_to_note를 쓰세요."));
+            return Err(format!(
+                "이미 있는 파일입니다: {shown}. 내용을 바꾸려면 update_note나 append_to_note를 쓰세요."
+            ));
         }
         if let Some(parent) = target.path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("폴더를 만들 수 없습니다: {e}"))?;
@@ -557,7 +573,11 @@ fn open_existing(path: &Path, input: &str) -> Result<Document, String> {
 /// 원래 인코딩(CP949)으로 쓸 수 없는 글자가 있어 UTF-8로 바꿨으면 그 안내를 돌려줍니다.
 fn save(doc: &mut Document, path: &Path) -> Result<&'static str, String> {
     let fell_back = doc.save_to(path).map_err(|e| format!("저장할 수 없습니다: {e}"))?;
-    Ok(if fell_back { " (원래 인코딩으로 쓸 수 없는 글자가 있어 UTF-8로 저장했습니다)" } else { "" })
+    Ok(if fell_back {
+        " (원래 인코딩으로 쓸 수 없는 글자가 있어 UTF-8로 저장했습니다)"
+    } else {
+        ""
+    })
 }
 
 /// 줄바꿈을 `\n`으로 (저장할 때 파일의 원래 줄 끝으로 바뀝니다)
@@ -769,13 +789,16 @@ mod tests {
         assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
         assert!(init["result"]["capabilities"]["tools"].is_object());
         // 모르는 버전이면 우리가 아는 최신
-        let init = s.handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#).unwrap();
+        let init = s
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#)
+            .unwrap();
         assert_eq!(init["result"]["protocolVersion"], PROTOCOL_VERSIONS[0]);
 
         assert!(s.handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#).is_none());
 
         let list = s.handle_line(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).unwrap();
-        let names: Vec<&str> = list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        let names: Vec<&str> =
+            list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["list_notes", "read_note", "search_notes", "create_note", "update_note", "append_to_note"]);
 
         let r = call(&s, 3, "create_note", json!({ "path": "Notes/a.md", "content": "hello" }));

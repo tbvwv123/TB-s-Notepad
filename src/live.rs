@@ -25,7 +25,16 @@ pub enum Deco {
     /// 그림만 있는 줄. `top`은 줄 맨 위에서 그림까지의 간격,
     /// `line`은 원문에서 이 줄의 바이트 범위, `max_w`는 배치할 때 쓴 최대 너비 (크기 조절용)
     /// `at`..`end` 는 이 줄의 글자 범위 (커서는 그림 앞 `at` 이나 뒤 `end` 에만 섭니다).
-    Image { at: usize, end: usize, uri: String, size: Vec2, top: f32, align: ImgAlign, line: std::ops::Range<usize>, max_w: f32 },
+    Image {
+        at: usize,
+        end: usize,
+        uri: String,
+        size: Vec2,
+        top: f32,
+        align: ImgAlign,
+        line: std::ops::Range<usize>,
+        max_w: f32,
+    },
     /// 코드 블록 배경
     CodeBlock { start: usize, end: usize },
     /// Ctrl+클릭으로 열 링크
@@ -104,7 +113,11 @@ impl<'a> Builder<'a> {
 
     /// 거의 폭이 없고 보이지 않는 글자
     fn hidden(&self) -> TextFormat {
-        TextFormat { font_id: FontId::new(0.1, self.st.body.clone()), color: Color32::TRANSPARENT, ..Default::default() }
+        TextFormat {
+            font_id: FontId::new(0.1, self.st.body.clone()),
+            color: Color32::TRANSPARENT,
+            ..Default::default()
+        }
     }
 
     /// 커서 줄이면 흐리게, 아니면 숨김
@@ -551,7 +564,14 @@ mod tests {
     fn run(text: &str, active: Option<usize>, img: Option<Vec2>) -> LiveLayout {
         let st = style();
         let f = move |_: &str| img;
-        layout(&LiveInput { text, style: &st, active_line: active, base_dir: None, image_size: &f, max_image_width: 500.0 })
+        layout(&LiveInput {
+            text,
+            style: &st,
+            active_line: active,
+            base_dir: None,
+            image_size: &f,
+            max_image_width: 500.0,
+        })
     }
 
     #[test]
@@ -618,8 +638,12 @@ mod tests {
 
     #[test]
     fn image_width_percent_uses_column() {
-        let out = run("![x](a.png \"width=50%\")
-", None, Some(Vec2::new(100.0, 50.0)));
+        let out = run(
+            "![x](a.png \"width=50%\")
+",
+            None,
+            Some(Vec2::new(100.0, 50.0)),
+        );
         let Some(Deco::Image { size, .. }) = out.decos.first() else { panic!() };
         assert_eq!(*size, Vec2::new(250.0, 125.0));
     }

@@ -92,7 +92,12 @@ impl FontLibrary {
     }
 
     /// 설정에 맞는 글꼴 정의를 만듭니다.
-    pub fn definitions(&mut self, editor_font: Option<&str>, ui_font: Option<&str>, doc_font: Option<&str>) -> FontDefinitions {
+    pub fn definitions(
+        &mut self,
+        editor_font: Option<&str>,
+        ui_font: Option<&str>,
+        doc_font: Option<&str>,
+    ) -> FontDefinitions {
         let mut defs = FontDefinitions::default();
 
         // 대체 글꼴 (한글 등)
@@ -251,8 +256,21 @@ fn dedup(v: &mut Vec<String>) {
 /// 굵게/기울임 등 스타일 변형은 목록에서 뺍니다 (편집기 글꼴은 보통체만 사용).
 fn is_style_variant(name: &str) -> bool {
     const STYLES: &[&str] = &[
-        "bold", "italic", "oblique", "light", "semilight", "semibold", "demibold", "black", "thin",
-        "medium", "heavy", "extrabold", "extralight", "ultralight", "condensed",
+        "bold",
+        "italic",
+        "oblique",
+        "light",
+        "semilight",
+        "semibold",
+        "demibold",
+        "black",
+        "thin",
+        "medium",
+        "heavy",
+        "extrabold",
+        "extralight",
+        "ultralight",
+        "condensed",
     ];
     name.split_whitespace().skip(1).any(|w| STYLES.contains(&w.to_lowercase().as_str()))
 }
@@ -298,8 +316,12 @@ fn enumerate_system_fonts() -> Vec<SystemFont> {
 
 #[cfg(not(windows))]
 fn enumerate_system_fonts() -> Vec<SystemFont> {
-    let mut dirs: Vec<PathBuf> =
-        vec!["/usr/share/fonts".into(), "/usr/local/share/fonts".into(), "/System/Library/Fonts".into(), "/Library/Fonts".into()];
+    let mut dirs: Vec<PathBuf> = vec![
+        "/usr/share/fonts".into(),
+        "/usr/local/share/fonts".into(),
+        "/System/Library/Fonts".into(),
+        "/Library/Fonts".into(),
+    ];
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         dirs.push(home.join(".fonts"));
         dirs.push(home.join(".local/share/fonts"));

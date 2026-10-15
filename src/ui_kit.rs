@@ -170,14 +170,7 @@ pub fn paint_icon(p: &Painter, rect: Rect, icon: Icon, color: Color32, bg: Color
             }
         }
         Icon::Folder => {
-            let pts = vec![
-                o(-0.8, -0.55),
-                o(-0.25, -0.55),
-                o(-0.05, -0.35),
-                o(0.8, -0.35),
-                o(0.8, 0.6),
-                o(-0.8, 0.6),
-            ];
+            let pts = vec![o(-0.8, -0.55), o(-0.25, -0.55), o(-0.05, -0.35), o(0.8, -0.35), o(0.8, 0.6), o(-0.8, 0.6)];
             p.add(Shape::closed_line(pts, st));
         }
         Icon::ChevronRight => {
@@ -260,7 +253,12 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str, selected: bool, base:
 
 /// 글자로 된 납작한 버튼 (B, I, H1 …)
 pub fn text_button(ui: &mut Ui, text: egui::RichText, tooltip: &str, selected: bool, base: Color32) -> Response {
-    let galley = egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
+    let galley = egui::WidgetText::from(text).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Button,
+    );
     let w = (galley.size().x + 14.0).max(30.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 28.0), Sense::click());
     if ui.is_rect_visible(rect) {

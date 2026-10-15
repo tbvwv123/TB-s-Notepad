@@ -20,7 +20,7 @@ pub const APP_ID: &str = "tb-notepad";
 /// 설정·세션을 저장할 폴더.
 /// - 환경 변수 `TB_NOTEPAD_DATA`가 있으면 그 폴더
 /// - 실행 파일 옆에 `portable.txt`가 있으면 실행 파일 옆 `data` 폴더 (USB 등에 들고 다니는 포터블 모드)
-/// - 아니면 `%APPDATA%	b-notepad\data`
+/// - 아니면 `%APPDATA%\tb-notepad\data`
 pub fn data_dir() -> PathBuf {
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
@@ -61,8 +61,6 @@ fn main() -> eframe::Result {
 
     eframe::run_native("TB's Notepad", options, Box::new(|cc| Ok(Box::new(app::NotepadApp::new(cc, files)))))
 }
-
-
 
 /// 코드로 그린 창 아이콘: 둥근 메모지 + 줄 + 연필 색 띠
 fn make_icon() -> egui::IconData {
