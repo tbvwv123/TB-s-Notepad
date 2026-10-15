@@ -30,6 +30,20 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 - 실행 파일 옆에 `portable.txt`를 만들면 실행 파일 옆 `data` 폴더에 저장합니다 (USB 휴대용).
 - 환경 변수 `TB_NOTEPAD_DATA`로 저장 폴더를 지정하면 기본 메모 폴더도 그 안에 만듭니다 (테스트용).
 
+## 성능 측정
+
+환경 변수 `TB_NOTEPAD_PERF=<결과 파일>` 로 켜면 프레임 시간(과 문서 배치 · 꾸밈 그리기 · 검색 시간)을 모았다가 끝날 때 p50/p95/최대와 메모리를 씁니다.
+`TB_NOTEPAD_PERF_SCRIPT=1` 이면 앱이 내장 입력 각본(끝으로 이동 → 40글자 입력 → Enter 10번 → 맨 위로 → 스크롤 40번 → 닫기)을
+egui 에 직접 넣어 실행하므로 실제 키보드 · 마우스 입력이 필요 없습니다. `TB_NOTEPAD_PERF_SCRIPT=search` 는 사이드바 검색 각본입니다.
+
+```powershell
+python scripts/make-perf-data.py perf_data      # 100KB / 500KB / 950KB / 3MB 문서 + 메모 3000개
+$env:TB_NOTEPAD_DATA = "$PWD\perf_data"; $env:TB_NOTEPAD_PERF = "$PWD\perf.txt"; $env:TB_NOTEPAD_PERF_SCRIPT = "1"
+dist\TB-Notepad.exe "perf_data\TB Notes\큰 문서ŀKB.md"; Get-Content perf.txt
+```
+
+1MB 가 넘는 문서는 반응을 지키려고 문서 모드 서식 없이 보여 줍니다.
+
 ## Ctrl+V 그림 붙여넣기의 원리
 
 egui는 클립보드에 텍스트가 없으면 Ctrl+V를 조용히 삼킵니다. 그래서 Windows에서는 창을 서브클래싱해
@@ -80,6 +94,7 @@ GitHub Actions 에서 `TB-Notepad.exe` 를 빌드해 그 릴리스에 붙입니�
 | `src/history.rs` | 이전 버전: 저장 직전 기록(5분마다 · 많이 지웠을 때), 목록, 되돌리기 |
 | `src/app/typing.rs` | 입력 도우미를 편집기에 연결 (Enter, Tab, Ctrl+Enter, `>> `) |
 | `src/app/history_ui.rs` | 이전 버전 창 (목록, 미리보기, 되돌리기) |
+| `src/perf.rs` | 개발용 성능 기록과 내장 입력 각본 (`TB_NOTEPAD_PERF`) |
 | `src/media.rs` | 소리·영상 종류 판별, 소리 재생기(rodio), Windows 셸 썸네일, 로컬 파일 링크 해석 |
 | `src/links.rs` | 메모 사이 링크 풀기(경로 · `#L12` 줄 · `#제목`), 제목 비교용 slug, 상대 경로 만들기, 붙여넣은 링크를 상대 경로로 |
 | `src/live.rs` | 문서 모드 배치: 기호 숨기기, 서식 적용, 목록 점·체크박스·표·그림 등 꾸밈 정보 |

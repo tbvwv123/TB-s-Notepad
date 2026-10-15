@@ -11,6 +11,8 @@ use crate::media::MediaKind;
 /// 꾸밈을 그릴 때 필요한 편집기 상태
 pub(super) struct DecoView<'a> {
     pub galley: &'a egui::Galley,
+    /// 줄(배치된 행)마다 시작 글자 위치. 글자 위치 → 화면 위치를 이진 탐색으로 찾으려고 한 번 만들어 둠
+    pub row_starts: Vec<usize>,
     /// 배치된 글자 좌표를 화면 좌표로 옮기는 양
     pub origin: egui::Vec2,
     pub clip: egui::Rect,
@@ -54,9 +56,34 @@ pub(super) struct DecoOutput {
     pub flip_toggle: Option<usize>,
 }
 
+/// 행마다 시작 글자 위치 (`Galley::pos_from_cursor` 는 매번 처음부터 세므로 큰 문서에서 느림)
+pub(super) fn row_starts(galley: &egui::Galley) -> Vec<usize> {
+    let mut out = Vec::with_capacity(galley.rows.len());
+    let mut at = 0;
+    for row in &galley.rows {
+        out.push(at);
+        at += row.char_count_including_newline().0;
+    }
+    out
+}
+
+/// 글자 위치의 커서 모양 (폭 0 인 사각형). `Galley::pos_from_cursor` 와 같은 결과를 이진 탐색으로.
+pub(super) fn pos_in(galley: &egui::Galley, row_starts: &[usize], ci: usize) -> egui::Rect {
+    let rows = &galley.rows;
+    let mut r = row_starts.partition_point(|&s| s <= ci).saturating_sub(1);
+    // 자동 줄바꿈으로 나뉜 행의 끝 = 다음 행의 시작이면 앞 행에 둠 (egui 와 같게)
+    if r > 0 && row_starts[r] == ci && !rows[r - 1].ends_with_newline {
+        r -= 1;
+    }
+    let Some(row) = rows.get(r) else { return galley.pos_from_cursor(CCursor::new(ci)) };
+    let col = (ci - row_starts[r]).min(row.char_count_including_newline().0);
+    let x = row.x_offset(egui::text::CharIndex(col)) + row.pos.x;
+    egui::Rect::from_min_max(egui::pos2(x, row.min_y()), egui::pos2(x, row.max_y()))
+}
+
 impl DecoView<'_> {
     fn pos(&self, ci: usize) -> egui::Rect {
-        self.galley.pos_from_cursor(CCursor::new(ci)).translate(self.origin)
+        pos_in(self.galley, &self.row_starts, ci).translate(self.origin)
     }
 }
 
@@ -398,5 +425,38 @@ fn link(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, url: &str, out: &mu
         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
     } else {
         out.follow_link = Some(url.to_owned());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 이진 탐색 위치가 egui 의 `pos_from_cursor` 와 모든 글자에서 같은지 (자동 줄바꿈 행 경계 포함)
+    #[test]
+    fn fast_positions_match_egui() {
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let ctx = ui.ctx().clone();
+            let text = "첫 줄은 꽤 길어서 자동으로 여러 행에 걸쳐 나뉘도록 글자를 많이 씁니다 abc def ghi
+
+둘째 줄
+- 목록 항목 하나 둘 셋 넷 다섯 여섯 일곱 여덟
+";
+            let mut job =
+                egui::text::LayoutJob::simple(text.to_owned(), egui::FontId::proportional(14.0), Color32::WHITE, 120.0);
+            job.wrap.max_width = 120.0;
+            let galley = ctx.fonts_mut(|f| f.layout_job(job));
+            assert!(
+                galley.rows.iter().any(|r| !r.ends_with_newline) && galley.rows.len() > 6,
+                "줄바꿈된 행이 있어야 함"
+            );
+            let starts = row_starts(&galley);
+            for ci in 0..=text.chars().count() {
+                assert_eq!(pos_in(&galley, &starts, ci), galley.pos_from_cursor(CCursor::new(ci)), "글자 {ci}");
+            }
+        });
+        // 테스트에서는 글꼴 텍스처를 쓰지 않으므로 버림
+        out.textures_delta.clear();
     }
 }

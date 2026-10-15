@@ -67,6 +67,8 @@ pub struct Sidebar {
     cache: HashMap<PathBuf, (Instant, Vec<Entry>)>,
     renaming: Option<(PathBuf, String, bool)>,
     search: Option<(String, Instant, Vec<PathBuf>)>,
+    /// 뒤에서 도는 검색 (검색어, 결과 받을 곳). 한 번에 하나만 돌려서 빠르게 쳐도 디스크를 덜 씀
+    search_job: Option<(String, std::sync::mpsc::Receiver<Vec<PathBuf>>)>,
     /// 링크로 찾아온 폴더: 잠시 강조하고 한 번 그 자리로 스크롤
     flash: Option<(PathBuf, Instant, bool)>,
 }
@@ -399,31 +401,42 @@ impl Sidebar {
         k: Colors,
     ) {
         let q = self.query.trim().to_lowercase();
-        let stale = self.search.as_ref().is_none_or(|(sq, t, _)| *sq != q || t.elapsed() > Duration::from_secs(3));
-        if stale {
-            let mut found = Vec::new();
-            let mut content_hits = Vec::new();
-            let mut scanned = 0usize;
-            for root in roots {
-                walk(root, 0, &mut |p| {
-                    scanned += 1;
-                    let name = display_name(p, false).to_lowercase();
-                    if name.contains(&q) {
-                        found.push(p.to_path_buf());
-                    } else if scanned < 600
-                        && std::fs::metadata(p).is_ok_and(|m| m.len() < 512 * 1024)
-                        && std::fs::read_to_string(p).is_ok_and(|t| t.to_lowercase().contains(&q))
-                    {
-                        content_hits.push(p.to_path_buf());
-                    }
-                });
+        // 뒤에서 끝난 검색 결과 받기
+        if let Some((jq, rx)) = &self.search_job {
+            match rx.try_recv() {
+                Ok(found) => {
+                    self.search = Some((jq.clone(), Instant::now(), found));
+                    self.search_job = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.search_job = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
-            found.extend(content_hits);
-            found.truncate(200);
-            self.search = Some((q.clone(), Instant::now(), found));
+        }
+        // 검색어가 바뀌었거나 결과가 3초 넘게 지났으면 다시 (이미 돌고 있으면 그게 끝난 뒤에)
+        let stale = self.search.as_ref().is_none_or(|(sq, t, _)| *sq != q || t.elapsed() > Duration::from_secs(3));
+        if stale && self.search_job.is_none() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (roots, query, ctx) = (roots.to_vec(), q.clone(), ui.ctx().clone());
+            std::thread::spawn(move || {
+                let started = std::time::Instant::now();
+                let found = search_notes(&roots, &query);
+                crate::perf::record("search", started.elapsed());
+                crate::perf::set_note("search_last", format!("'{}' → {}개", query, found.len()));
+                let _ = tx.send(found);
+                ctx.request_repaint();
+            });
+            self.search_job = Some((q.clone(), rx));
+        }
+        let searching = self.search_job.is_some() && self.search.as_ref().is_none_or(|(sq, _, _)| *sq != q);
+        if searching {
+            ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
         let results = self.search.as_ref().map(|(_, _, r)| r.clone()).unwrap_or_default();
-        section_label(ui, &tf!("검색 결과 {}개", results.len()), k);
+        if searching {
+            section_label(ui, t!("찾는 중…"), k);
+        } else {
+            section_label(ui, &tf!("검색 결과 {}개", results.len()), k);
+        }
         for p in results {
             let name = display_name(&p, false);
             let resp = tree_row(ui, 0, RowIcon::Note, &name, active == Some(p.as_path()), false, k);
@@ -448,6 +461,32 @@ impl Sidebar {
             });
         }
     }
+}
+
+/// 메모 폴더들에서 이름 또는 내용에 `query`(소문자)가 들어간 메모. 이름이 맞는 것부터, 최대 200개.
+/// 화면을 멈추지 않도록 뒤의 스레드에서 부릅니다.
+fn search_notes(roots: &[PathBuf], query: &str) -> Vec<PathBuf> {
+    let mut by_name = Vec::new();
+    let mut by_content = Vec::new();
+    let mut scanned = 0usize;
+    for root in roots {
+        walk(root, 0, &mut |p| {
+            scanned += 1;
+            if scanned > 20_000 || by_name.len() + by_content.len() >= 200 {
+                return;
+            }
+            if display_name(p, false).to_lowercase().contains(query) {
+                by_name.push(p.to_path_buf());
+            } else if std::fs::metadata(p).is_ok_and(|m| m.len() < 512 * 1024)
+                && std::fs::read_to_string(p).is_ok_and(|t| t.to_lowercase().contains(query))
+            {
+                by_content.push(p.to_path_buf());
+            }
+        });
+    }
+    by_name.extend(by_content);
+    by_name.truncate(200);
+    by_name
 }
 
 /// 폴더 안의 하위 폴더와 메모 파일을 모두 훑습니다 (사이드바에 보이는 것과 같은 것만, 깊이·개수 제한)

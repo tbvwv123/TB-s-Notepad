@@ -38,6 +38,21 @@ The script reports strings without a translation and translations whose `{}` cou
 The language is chosen in Settings › Editor; "Automatic" follows the Windows display language.
 The guide note written on first launch is `samples/welcome/<lang>.md`.
 
+## Performance
+
+Set `TB_NOTEPAD_PERF=<report file>` to record frame times (and document layout, decoration and search times) and write a summary
+with p50/p95/max and memory when the app exits. With `TB_NOTEPAD_PERF_SCRIPT=1` the app also plays a built-in input script
+(jump to the end, type 40 characters, press Enter 10 times, jump to the top, scroll 40 times, then close) by feeding events to egui directly,
+so no real keyboard or mouse input is involved; `TB_NOTEPAD_PERF_SCRIPT=search` types a query into the sidebar search instead.
+
+```powershell
+python scripts/make-perf-data.py perf_data      # 100KB / 500KB / 950KB / 3MB documents + 3,000 notes
+$env:TB_NOTEPAD_DATA = "$PWD\perf_data"; $env:TB_NOTEPAD_PERF = "$PWD\perf.txt"; $env:TB_NOTEPAD_PERF_SCRIPT = "1"
+dist\TB-Notepad.exe "perf_data\TB Notes\큰 문서ŀKB.md"; Get-Content perf.txt
+```
+
+Documents over 1 MB are shown without document-view formatting to stay responsive.
+
 ## How Ctrl+V image paste works
 
 egui silently swallows Ctrl+V when the clipboard has no text. On Windows the window is subclassed so the key is seen before winit,
@@ -82,6 +97,7 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/history.rs` | Previous versions: snapshots before saving (every 5 min / big deletions), list, restore |
 | `src/app/typing.rs` | Hooks the typing helpers into the editor (Enter, Tab, Ctrl+Enter, `>> `) |
 | `src/app/history_ui.rs` | Previous versions window (list, preview, restore) |
+| `src/perf.rs` | Dev-only performance recording and the built-in input script (`TB_NOTEPAD_PERF`) |
 | `src/media.rs` | Audio/video detection, audio player (rodio), Windows shell thumbnails, local file link resolution |
 | `src/links.rs` | Parsing note links (path · `#L12` line · `#heading`), heading slugs, relative paths, relativizing pasted links |
 | `src/live.rs` | Document-view layout: hiding symbols, applying styles, decoration info for bullets, checkboxes, tables, images… |

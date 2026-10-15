@@ -17,6 +17,7 @@ mod markdown;
 mod mcp;
 mod media;
 mod paste_hook;
+mod perf;
 mod settings;
 mod sidebar;
 mod ui_kit;
@@ -73,6 +74,7 @@ fn install_crash_log() {
 }
 
 fn main() -> eframe::Result {
+    perf::init();
     install_crash_log();
     // `--mcp`: 창 없이 AI 프로그램(Claude 등)과 stdio로 대화하는 메모 서버 (src/mcp.rs)
     if std::env::args_os().skip(1).any(|a| a == "--mcp") {

@@ -144,9 +144,10 @@ impl NotepadApp {
                     ctx: &ctx,
                 };
                 let mut layouter = |ui: &Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
-                    let job =
-                        layout_job(buf.as_str(), wrap_width, &params, &mut doc.live_cache, &mut doc.highlight_cache);
-                    ui.fonts_mut(|f| f.layout_job(job))
+                    let job = crate::perf::time("layout_job_fn", || {
+                        layout_job(buf.as_str(), wrap_width, &params, &mut doc.live_cache, &mut doc.highlight_cache)
+                    });
+                    crate::perf::time("text_layout", || ui.fonts_mut(|f| f.layout_job(job)))
                 };
 
                 let rows = ((ui.available_height() - 82.0) / row_h).max(1.0) as usize;
@@ -154,6 +155,7 @@ impl NotepadApp {
                     // 기본 커서는 그림 줄 맨 위 구석에 그려지므로 감추고, 그림 옆에 따로 그립니다.
                     ui.visuals_mut().text_cursor.stroke.color = Color32::TRANSPARENT;
                 }
+                let textedit_started = std::time::Instant::now();
                 let output = TextEdit::multiline(&mut doc.text)
                     .id(id)
                     .font(if doc_mode { FontId::new(s.editor_font_size, doc_family()) } else { source_font.clone() })
@@ -166,6 +168,7 @@ impl NotepadApp {
                     .hint_text(if doc_mode { t!("제목을 쓰고 Enter를 눌러 시작하세요") } else { "" })
                     .layouter(&mut layouter)
                     .show(ui);
+                crate::perf::record("textedit_show", textedit_started.elapsed());
 
                 let response = &output.response.response;
                 if response.changed() {
@@ -186,6 +189,7 @@ impl NotepadApp {
                 if doc_mode && let Some((_, _, decos, _)) = &doc.live_cache {
                     let view = DecoView {
                         galley,
+                        row_starts: decorations::row_starts(galley),
                         origin,
                         clip,
                         text_left,
@@ -201,7 +205,7 @@ impl NotepadApp {
                         media: &self.media,
                         fake_bold,
                     };
-                    decorations = paint_decorations(ui, &view, decos);
+                    decorations = crate::perf::time("decorations", || paint_decorations(ui, &view, decos));
                 }
                 let mut bg_shapes = std::mem::take(&mut decorations.bg);
                 let mut fg_shapes = std::mem::take(&mut decorations.fg);
@@ -507,13 +511,15 @@ fn layout_job(
             Some((k, job, _, _)) if *k == key => job.clone(),
             _ => {
                 let size_of = |uri: &str| image_size(p.ctx, uri);
-                let out = live::layout(&live::LiveInput {
-                    text,
-                    style: p.live_style,
-                    active_line: p.active_line,
-                    base_dir: p.base_dir,
-                    image_size: &size_of,
-                    max_image_width: wrap_width - 4.0,
+                let out = crate::perf::time("live_layout", || {
+                    live::layout(&live::LiveInput {
+                        text,
+                        style: p.live_style,
+                        active_line: p.active_line,
+                        base_dir: p.base_dir,
+                        image_size: &size_of,
+                        max_image_width: wrap_width - 4.0,
+                    })
                 });
                 *live_cache = Some((key, out.job.clone(), out.decos, out.image_uris));
                 out.job
@@ -524,7 +530,7 @@ fn layout_job(
         match highlight_cache {
             Some((k, job)) if *k == key => job.clone(),
             _ => {
-                let job = markdown::highlight(text, p.source_style);
+                let job = crate::perf::time("highlight", || markdown::highlight(text, p.source_style));
                 *highlight_cache = Some((key, job.clone()));
                 job
             }

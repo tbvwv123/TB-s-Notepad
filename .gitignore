@@ -2,3 +2,6 @@
 /dist
 # 이 PC 전용 cargo 설정 (빌드 결과물 위치 등)
 /.cargo/config.toml
+# 성능 시험 데이터 (scripts/make-perf-data.py)
+/perf_data
+/perf*.txt

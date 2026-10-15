@@ -193,6 +193,8 @@ pub struct NotepadApp {
     menu_sel: Option<(u64, Range<usize>)>,
     /// 이전 버전 창
     history_view: Option<history_ui::HistoryView>,
+    /// 성능 측정용 자동 입력 각본 (TB_NOTEPAD_PERF_SCRIPT)
+    perf_script: Option<crate::perf::Script>,
 }
 
 impl NotepadApp {
@@ -257,6 +259,7 @@ impl NotepadApp {
             slash: None,
             menu_sel: None,
             history_view: None,
+            perf_script: crate::perf::Script::active().then(crate::perf::Script::default),
         };
 
         for sd in session.docs {
@@ -461,6 +464,55 @@ impl NotepadApp {
 
 impl eframe::App for NotepadApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        // TB_NOTEPAD_PERF 로 켜면 프레임마다 걸린 시간을 기록 (src/perf.rs)
+        if crate::perf::enabled() {
+            let t = std::time::Instant::now();
+            self.frame(ui);
+            let dt = t.elapsed();
+            crate::perf::record("frame", dt);
+            crate::perf::record_phase(dt);
+            // 접근성(스크린 리더용 정보)이 켜져 있으면 큰 문서에서 프레임마다 글자 정보를 만들므로 기록해 둠
+            let accesskit = ui.ctx().accesskit_node_builder(ui.id(), |_| ()).is_some();
+            crate::perf::note("accesskit_active", accesskit.to_string());
+            if let Some(d) = crate::perf::since_start() {
+                crate::perf::note("first_frame_done_ms", format!("{:.0}", d.as_secs_f64() * 1000.0));
+            }
+        } else {
+            self.frame(ui);
+        }
+    }
+
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if let Some(script) = &mut self.perf_script
+            && let Some(query) = script.step(ctx, raw_input)
+        {
+            self.sidebar.query = query;
+        }
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        crate::perf::write_report();
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, "settings", &self.settings);
+        eframe::set_value(storage, "session", &self.session());
+    }
+
+    fn auto_save_interval(&self) -> std::time::Duration {
+        // 비정상 종료에 대비해 자주 저장 (작은 파일이라 부담 없음)
+        std::time::Duration::from_secs(10)
+    }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        let p = self.settings.palette().panel_bg;
+        Color32::from_rgb(p[0], p[1], p[2]).to_normalized_gamma_f32()
+    }
+}
+
+impl NotepadApp {
+    /// 한 프레임: 패널 배치와 입력 처리
+    fn frame(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         self.settings.clamp();
         self.apply_look(&ctx);
@@ -509,9 +561,9 @@ impl eframe::App for NotepadApp {
             egui::Panel::bottom("status")
                 .frame(Frame::NONE.fill(editor_bg).inner_margin(Margin { left: 14, right: 8, top: 3, bottom: 3 }))
                 .show_separator_line(false)
-                .show(ui, |ui| self.status_bar(ui));
+                .show(ui, |ui| crate::perf::time("status_bar", || self.status_bar(ui)));
         }
-        let content = self.central(ui);
+        let content = crate::perf::time("central", || self.central(ui));
         if self.find.open {
             self.find_overlay(&ctx, content);
         }
@@ -521,21 +573,6 @@ impl eframe::App for NotepadApp {
         self.link_picker_ui(&ctx);
         self.history_ui(&ctx);
         self.drop_overlay(&ctx);
-    }
-
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, "settings", &self.settings);
-        eframe::set_value(storage, "session", &self.session());
-    }
-
-    fn auto_save_interval(&self) -> std::time::Duration {
-        // 비정상 종료에 대비해 자주 저장 (작은 파일이라 부담 없음)
-        std::time::Duration::from_secs(10)
-    }
-
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        let p = self.settings.palette().panel_bg;
-        Color32::from_rgb(p[0], p[1], p[2]).to_normalized_gamma_f32()
     }
 }
 
