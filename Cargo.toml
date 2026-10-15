@@ -1,6 +1,6 @@
 [package]
 name = "tb_notepad"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "TB's Notepad - a light, easy markdown notepad for Windows"
 license = "MIT"
