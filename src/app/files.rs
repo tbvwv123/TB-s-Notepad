@@ -361,6 +361,17 @@ impl NotepadApp {
                     let _ = reveal_in_file_manager(&p);
                 }
                 Action::CopyLink(p) => self.copy_path_link(ctx, &p),
+                Action::History(p) => {
+                    self.open_path(&p);
+                    self.open_history(&p);
+                }
+                Action::Move { from, to_dir } => {
+                    if let Some(name) = from.file_name()
+                        && from.parent() != Some(to_dir.as_path())
+                    {
+                        self.move_path(ctx, &from, to_dir.join(name));
+                    }
+                }
                 Action::ActivateDoc(id) => {
                     if let Some(i) = self.docs.iter().position(|d| d.id == id) {
                         self.set_active(i);
@@ -383,9 +394,21 @@ impl NotepadApp {
             let ext = from.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "md".into());
             dir.join(format!("{clean}.{ext}"))
         };
+        self.move_path(ctx, from, target);
+    }
+
+    /// 파일·폴더를 옮기거나 이름을 바꿉니다. 열린 문서의 경로, 버전 기록, 메모 속 링크(그림 포함)가 함께 따라갑니다.
+    pub(super) fn move_path(&mut self, ctx: &egui::Context, from: &Path, target: PathBuf) -> bool {
+        if target == from {
+            return false;
+        }
         if target.exists() {
             self.set_status(ctx, t!("같은 이름이 이미 있습니다"));
-            return;
+            return false;
+        }
+        if target.starts_with(from) {
+            self.set_status(ctx, t!("폴더를 자기 안으로 옮길 수 없습니다"));
+            return false;
         }
         // 열려 있는 문서는 먼저 저장해 두고 경로를 함께 바꿉니다.
         let ids: Vec<u64> =
@@ -393,20 +416,66 @@ impl NotepadApp {
         for id in &ids {
             self.save_if_needed(*id);
         }
-        match std::fs::rename(from, &target) {
-            Ok(()) => {
-                for d in &mut self.docs {
-                    if let Some(p) = &d.path
-                        && let Ok(rest) = p.strip_prefix(from)
-                    {
-                        d.path = Some(if rest.as_os_str().is_empty() { target.clone() } else { target.join(rest) });
-                        d.auto_named = false;
-                    }
-                }
-                self.sidebar.invalidate();
-            }
-            Err(err) => self.dialog = Some(Dialog::Message(tf!("이름을 바꾸지 못했습니다.\n{}", err))),
+        if let Err(err) = std::fs::rename(from, &target) {
+            self.dialog = Some(Dialog::Message(tf!("옮기지 못했습니다.\n{}", err)));
+            return false;
         }
+        for d in &mut self.docs {
+            if let Some(p) = &d.path
+                && let Ok(rest) = p.strip_prefix(from)
+            {
+                d.path = Some(if rest.as_os_str().is_empty() { target.clone() } else { target.join(rest) });
+                d.auto_named = false;
+            }
+        }
+        if target.is_file() {
+            crate::history::moved(from, &target);
+        }
+        let fixed = self.update_links_after_move(from, &target);
+        self.sidebar.invalidate();
+        let roots = self.settings.roots.clone();
+        self.sidebar.reveal(&target, &roots);
+        if fixed > 0 {
+            self.set_status(ctx, tf!("옮겼습니다 · 링크를 고친 메모 {}개", fixed));
+        }
+        true
+    }
+
+    /// 옮긴 뒤 메모 폴더의 모든 메모에서 링크를 고칩니다. 고친 메모 수를 돌려줍니다.
+    fn update_links_after_move(&mut self, from: &Path, to: &Path) -> usize {
+        let mut files = Vec::new();
+        for root in &self.settings.roots {
+            sidebar::walk_tree(root, &self.settings.image_folder, 0, &mut |p, is_dir| {
+                if !is_dir && is_markdown_path(p) {
+                    files.push(p.to_path_buf());
+                }
+            });
+        }
+        let mut fixed = 0;
+        for file in files {
+            let old_file = match file.strip_prefix(to) {
+                Ok(rest) if rest.as_os_str().is_empty() => from.to_path_buf(),
+                Ok(rest) => from.join(rest),
+                Err(_) => file.clone(),
+            };
+            let (Some(old_dir), Some(new_dir)) = (old_file.parent(), file.parent()) else { continue };
+            if let Some(doc) = self.docs.iter_mut().find(|d| d.path.as_deref() == Some(file.as_path())) {
+                if let Some(text) = links::rebase_links(&doc.text, old_dir, new_dir, from, to) {
+                    doc.text = text;
+                    doc.mark_changed();
+                    fixed += 1;
+                }
+                continue;
+            }
+            let Ok(mut doc) = Document::open(&file) else { continue };
+            if let Some(text) = links::rebase_links(&doc.text, old_dir, new_dir, from, to) {
+                doc.text = text;
+                if doc.save_to(&file).is_ok() {
+                    fixed += 1;
+                }
+            }
+        }
+        fixed
     }
 
     pub(super) fn delete_path(&mut self, ctx: &egui::Context, path: &Path) {
@@ -565,6 +634,7 @@ mod tests {
             assert!(has(|d| matches!(d, Deco::Rule { .. })), "{lang:?}");
             assert!(has(|d| matches!(d, Deco::CodeBlock { .. })), "{lang:?}");
             assert!(has(|d| matches!(d, Deco::Table { .. })), "{lang:?}");
+            assert!(has(|d| matches!(d, Deco::Toggle { open: false, .. })), "{lang:?} 접힌 토글");
             assert!(has(|d| matches!(d, Deco::Link { .. })), "{lang:?}");
             // 모든 그림 경로는 실행 파일에 넣은 예시 그림 하나뿐
             assert!(out.image_uris.iter().all(|u| u.ends_with("images/welcome.png")), "{:?}", out.image_uris);

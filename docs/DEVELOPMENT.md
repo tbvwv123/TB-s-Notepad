@@ -72,6 +72,10 @@ Rows that need height, like images and tables, reserve it through the line heigh
 | `src/app/input.rs` | Shortcuts, drag and drop, close requests |
 | `src/app/dialogs.rs` | Dialogs (save prompts, Recycle Bin, new folder, file changed outside) |
 | `src/app/settings_ui.rs` | Settings window |
+| `src/editing.rs` | Typing helpers as pure functions: list continuation (Enter), indent (Tab), toggles (`<details>`) |
+| `src/history.rs` | Previous versions: snapshots before saving (every 5 min / big deletions), list, restore |
+| `src/app/typing.rs` | Hooks the typing helpers into the editor (Enter, Tab, Ctrl+Enter, `>> `) |
+| `src/app/history_ui.rs` | Previous versions window (list, preview, restore) |
 | `src/media.rs` | Audio/video detection, audio player (rodio), Windows shell thumbnails, local file link resolution |
 | `src/links.rs` | Parsing note links (path · `#L12` line · `#heading`), heading slugs, relative paths, relativizing pasted links |
 | `src/live.rs` | Document-view layout: hiding symbols, applying styles, decoration info for bullets, checkboxes, tables, images… |

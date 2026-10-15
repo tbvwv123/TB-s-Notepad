@@ -8,7 +8,9 @@ mod i18n_table;
 
 mod app;
 mod document;
+mod editing;
 mod fonts;
+mod history;
 mod links;
 mod live;
 mod markdown;
@@ -44,7 +46,34 @@ pub fn data_dir() -> PathBuf {
     .clone()
 }
 
+/// 저장소 주소 (새 버전 · 문제 알리기)
+pub const REPO_URL: &str = "https://github.com/tbvwv123/TB-s-Notepad";
+
+/// 오류로 꺼질 때 남기는 기록 파일
+pub fn crash_log_path() -> PathBuf {
+    data_dir().join("crash.log")
+}
+
+/// 프로그램이 오류(panic)로 꺼지면 원인을 `crash.log` 에 남깁니다. 다음에 켤 때 알려 줍니다.
+fn install_crash_log() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let report = format!(
+            "TB's Notepad {} ({})\n{}\n\n{}\n\n{}\n",
+            env!("CARGO_PKG_VERSION"),
+            if std::env::args_os().any(|a| a == "--mcp") { "mcp" } else { "app" },
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            info,
+            std::backtrace::Backtrace::force_capture(),
+        );
+        let _ = std::fs::create_dir_all(data_dir());
+        let _ = std::fs::write(crash_log_path(), report);
+        default_hook(info);
+    }));
+}
+
 fn main() -> eframe::Result {
+    install_crash_log();
     // `--mcp`: 창 없이 AI 프로그램(Claude 등)과 stdio로 대화하는 메모 서버 (src/mcp.rs)
     if std::env::args_os().skip(1).any(|a| a == "--mcp") {
         mcp::run();

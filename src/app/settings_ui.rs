@@ -419,6 +419,19 @@ pub(super) fn settings_about(ui: &mut Ui) {
     ui.label(RichText::new(tf!("버전 {}", env!("CARGO_PKG_VERSION"))).weak());
     ui.add_space(8.0);
     ui.label(t!("Rust와 egui로 만든 가볍고 쉬운 메모장"));
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.hyperlink_to(t!("새 버전 받기"), format!("{}/releases/latest", crate::REPO_URL));
+        ui.label("·");
+        ui.hyperlink_to(t!("문제 알리기"), format!("{}/issues/new", crate::REPO_URL));
+        ui.label("·");
+        ui.hyperlink_to("GitHub", crate::REPO_URL);
+    });
+    ui.label(
+        RichText::new(t!("이 앱은 스스로 인터넷에 연결하지 않습니다. 새 버전은 위 링크에서 확인하세요."))
+            .small()
+            .weak(),
+    );
     ui.add_space(16.0);
     ui_kit::section_title(ui, t!("설정 저장 위치"));
     ui.horizontal(|ui| {

@@ -70,6 +70,10 @@ winit보다 먼저 키 입력을 보고, "텍스트는 없고 그림/파일이 �
 | `src/app/input.rs` | 단축키, 끌어다 놓기, 창 닫기 |
 | `src/app/dialogs.rs` | 대화상자 (저장 확인, 휴지통, 새 폴더, 밖에서 바뀐 파일) |
 | `src/app/settings_ui.rs` | 설정 창 |
+| `src/editing.rs` | 입력 도우미(순수 함수): 목록 이어 쓰기(Enter), 들여쓰기(Tab), 토글(`<details>`) |
+| `src/history.rs` | 이전 버전: 저장 직전 기록(5분마다 · 많이 지웠을 때), 목록, 되돌리기 |
+| `src/app/typing.rs` | 입력 도우미를 편집기에 연결 (Enter, Tab, Ctrl+Enter, `>> `) |
+| `src/app/history_ui.rs` | 이전 버전 창 (목록, 미리보기, 되돌리기) |
 | `src/media.rs` | 소리·영상 종류 판별, 소리 재생기(rodio), Windows 셸 썸네일, 로컬 파일 링크 해석 |
 | `src/links.rs` | 메모 사이 링크 풀기(경로 · `#L12` 줄 · `#제목`), 제목 비교용 slug, 상대 경로 만들기, 붙여넣은 링크를 상대 경로로 |
 | `src/live.rs` | 문서 모드 배치: 기호 숨기기, 서식 적용, 목록 점·체크박스·표·그림 등 꾸밈 정보 |

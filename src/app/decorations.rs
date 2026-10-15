@@ -50,6 +50,8 @@ pub(super) struct DecoOutput {
     pub media_requests: Vec<PathBuf>,
     /// Ctrl+클릭한 웹 주소가 아닌 링크 (메모 · 폴더 · 줄 · 이 PC의 파일)
     pub follow_link: Option<String>,
+    /// 누른 토글 ▶ (`<details>` 줄의 바이트)
+    pub flip_toggle: Option<usize>,
 }
 
 impl DecoView<'_> {
@@ -83,6 +85,9 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
             }
             Deco::Link { start, end, url } => link(ui, view, *start, *end, url, &mut out),
             Deco::Table { rows, aligns, row_height } => table(ui, view, rows, aligns, *row_height, &mut out),
+            Deco::Toggle { at, open, details_byte, depth, empty } => {
+                toggle(ui, view, *at, *open, *details_byte, *depth, *empty, &mut out)
+            }
         }
     }
     out
@@ -229,6 +234,46 @@ fn table(ui: &Ui, v: &DecoView<'_>, rows: &[live::TableRow], aligns: &[ImgAlign]
             }
             x += w;
         }
+    }
+}
+
+/// 토글 제목 앞의 ▶ (접힘) / ▼ (펼침). 누르면 접기 · 펴기
+#[allow(clippy::too_many_arguments)]
+fn toggle(
+    ui: &Ui,
+    v: &DecoView<'_>,
+    at: usize,
+    open: bool,
+    details_byte: usize,
+    depth: usize,
+    empty: bool,
+    out: &mut DecoOutput,
+) {
+    let a = v.pos(at);
+    if !a.intersects(v.clip) {
+        return;
+    }
+    let w = v.font_size * live::TOGGLE_INDENT_SCALE;
+    let center = egui::pos2(v.text_left + (depth as f32 + 0.5) * w, a.center().y);
+    let hit = egui::Rect::from_center_size(center, egui::vec2(w, a.height().max(v.font_size)));
+    let hovered = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| hit.contains(p));
+    if hovered {
+        out.fg.push(Shape::rect_filled(hit.shrink(2.0), 5.0, mix(v.bg, v.text, 0.08)));
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let s = v.font_size * 0.3;
+    let pts = if open {
+        vec![center + egui::vec2(-s, -s * 0.6), center + egui::vec2(s, -s * 0.6), center + egui::vec2(0.0, s * 0.8)]
+    } else {
+        vec![center + egui::vec2(-s * 0.6, -s), center + egui::vec2(s * 0.8, 0.0), center + egui::vec2(-s * 0.6, s)]
+    };
+    out.fg.push(Shape::convex_polygon(pts, v.text, Stroke::NONE));
+    if empty {
+        let g = ui.painter().layout_no_wrap(t!("토글").to_owned(), egui::FontId::proportional(v.font_size), v.muted);
+        out.fg.push(Shape::galley(egui::pos2(a.left() + 2.0, a.center().y - g.size().y / 2.0), g, v.muted));
+    }
+    if v.clicked_at.is_some_and(|p| hit.contains(p)) {
+        out.flip_toggle = Some(details_byte);
     }
 }
 

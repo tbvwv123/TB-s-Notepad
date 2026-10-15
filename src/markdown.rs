@@ -596,6 +596,8 @@ pub enum MdAction {
     CodeBlock,
     Table,
     Rule,
+    /// 커서 줄을 토글(접기 블록)로
+    Toggle,
     /// 선택 영역을 이 텍스트로 바꿉니다.
     Insert(String),
 }
@@ -666,6 +668,12 @@ pub fn apply_action(text: &mut String, sel: Range<usize>, action: &MdAction) -> 
             }
         }
         MdAction::Rule => insert_block(text, start, end, "---\n"),
+        MdAction::Toggle => {
+            let (new, c) = crate::editing::make_toggle(text, byte_to_char(text, start));
+            *text = new;
+            let b = char_to_byte(text, c);
+            b..b
+        }
         MdAction::Insert(s) => {
             text.replace_range(start..end, s);
             let e = start + s.len();

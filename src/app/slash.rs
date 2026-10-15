@@ -11,6 +11,7 @@ pub(super) enum Cmd {
     Numbered,
     Task,
     Quote,
+    Toggle,
     Subtext,
     CodeBlock,
     Table,
@@ -54,6 +55,7 @@ pub(super) const COMMANDS: &[Command] = &[
     c(Cmd::Numbered, "번호 목록", "numbered ordered list 숫자 목록", "1. ", Badge::Icon(Icon::Numbers)),
     c(Cmd::Task, "할 일", "todo task checkbox 체크 체크박스 할일", "- [ ] ", Badge::Icon(Icon::Task)),
     c(Cmd::Quote, "인용", "quote 인용문", "> ", Badge::Icon(Icon::Quote)),
+    c(Cmd::Toggle, "토글", "toggle details collapse fold 접기 펼치기 토글목록", ">> ", Badge::Text("▸")),
     c(Cmd::Subtext, "작은 글씨", "subtext small 보조 설명", "-# ", Badge::Text("-#")),
     c(Cmd::CodeBlock, "코드 블록", "code block 코드", "```", Badge::Text("{ }")),
     c(Cmd::Table, "표", "table 표 칸", "", Badge::Icon(Icon::Table)),
@@ -181,6 +183,10 @@ pub(super) enum MenuKey {
 }
 
 impl NotepadApp {
+    pub(super) fn slash_is_open(&self) -> bool {
+        self.slash.as_ref().is_some_and(|m| m.doc_id == self.doc().id)
+    }
+
     fn slash_query(&self, ctx: &egui::Context, id: Id) -> Option<String> {
         let menu = self.slash.as_ref()?;
         let doc = self.doc();
@@ -296,6 +302,7 @@ impl NotepadApp {
             Cmd::Numbered => md(MdAction::Numbered),
             Cmd::Task => md(MdAction::Task),
             Cmd::Quote => md(MdAction::Quote),
+            Cmd::Toggle => md(MdAction::Toggle),
             Cmd::Subtext => md(MdAction::Subtext),
             Cmd::CodeBlock => md(MdAction::CodeBlock),
             Cmd::Table => md(MdAction::Table),

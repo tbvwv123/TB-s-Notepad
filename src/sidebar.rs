@@ -38,6 +38,13 @@ pub enum Action {
     Reveal(PathBuf),
     /// 이 파일·폴더를 가리키는 링크를 클립보드로
     CopyLink(PathBuf),
+    /// 이전 버전 창
+    History(PathBuf),
+    /// 끌어다 놓아 옮기기: 이 파일·폴더를 `to_dir` 안으로
+    Move {
+        from: PathBuf,
+        to_dir: PathBuf,
+    },
     ActivateDoc(u64),
     CloseDoc(u64),
 }
@@ -192,6 +199,7 @@ impl Sidebar {
                 let name = if name.is_empty() { root.display().to_string() } else { name };
                 let header = root_header(ui, &name, collapsed, k);
                 self.scroll_to_flash(root, &header);
+                drop_target(ui, &header, root, &mut actions, k);
                 let tip = root.display().to_string();
                 let header = header.on_hover_text(tip);
                 let plus = hover_icon_always(ui, &header, Icon::Plus, t!("이 폴더에 새 메모"), k);
@@ -239,6 +247,7 @@ impl Sidebar {
             if roots.is_empty() {
                 ui.label(RichText::new(t!("'폴더 추가'로 메모를 모아 둘 폴더를 고르세요.")).small().weak());
             }
+            drag_ghost(ui, k);
         });
         actions
     }
@@ -297,6 +306,10 @@ impl Sidebar {
             let flashing = self.flashing(&e.path);
             let resp = tree_row(ui, depth, icon, &e.name, is_active || flashing, false, k);
             self.scroll_to_flash(&e.path, &resp);
+            // 끌어서 다른 폴더로 옮기기: 폴더에 놓으면 그 안으로, 메모에 놓으면 그 메모가 있는 폴더로
+            resp.dnd_set_drag_payload(e.path.clone());
+            let drop_dir = if e.is_dir { e.path.clone() } else { dir.to_path_buf() };
+            drop_target(ui, &resp, &drop_dir, actions, k);
             if e.is_dir {
                 let plus = hover_icon(ui, &resp, Icon::Plus, t!("이 폴더에 새 메모"), k);
                 if plus {
@@ -342,6 +355,10 @@ impl Sidebar {
                 }
                 if ui.button(t!("하이퍼링크 복사")).clicked() {
                     actions.push(Action::CopyLink(e.path.clone()));
+                    ui.close();
+                }
+                if !e.is_dir && ui.button(t!("이전 버전…")).clicked() {
+                    actions.push(Action::History(e.path.clone()));
                     ui.close();
                 }
                 ui.separator();
@@ -530,8 +547,35 @@ enum RowIcon {
 
 const ROW_H: f32 = 30.0;
 
+/// 끌고 온 파일·폴더를 이 줄에 놓으면 `dir` 로 옮기기. 끌고 있는 동안 놓을 자리를 강조합니다.
+fn drop_target(ui: &Ui, resp: &Response, dir: &Path, actions: &mut Vec<Action>, k: Colors) {
+    if let Some(from) = resp.dnd_hover_payload::<PathBuf>()
+        && !dir.starts_with(from.as_path())
+    {
+        ui.painter().rect_stroke(resp.rect, 8.0, egui::Stroke::new(1.5, k.accent), egui::StrokeKind::Inside);
+    }
+    if let Some(from) = resp.dnd_release_payload::<PathBuf>() {
+        actions.push(Action::Move { from: (*from).clone(), to_dir: dir.to_path_buf() });
+    }
+}
+
+/// 끌고 있는 파일·폴더 이름을 마우스 옆에 보여 줍니다.
+fn drag_ghost(ui: &Ui, k: Colors) {
+    let Some(path) = egui::DragAndDrop::payload::<PathBuf>(ui.ctx()) else { return };
+    let Some(pos) = ui.ctx().pointer_interact_pos() else { return };
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("sidebar_drag")));
+    let galley = painter.layout_no_wrap(name, FontId::proportional(13.0), k.text);
+    let rect = Rect::from_min_size(pos + vec2(14.0, 10.0), galley.size() + vec2(16.0, 8.0));
+    painter.rect_filled(rect, 6.0, k.panel);
+    painter.rect_stroke(rect, 6.0, egui::Stroke::new(1.0, k.accent), egui::StrokeKind::Inside);
+    painter.galley(rect.min + vec2(8.0, 4.0), galley, k.text);
+}
+
 fn tree_row(ui: &mut Ui, depth: usize, icon: RowIcon, label: &str, active: bool, dirty: bool, k: Colors) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+    // 누르기와 끌기(다른 폴더로 옮기기)를 함께 받음
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
     if !ui.is_rect_visible(rect) {
         return resp;
     }

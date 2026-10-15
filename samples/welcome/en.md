@@ -32,6 +32,7 @@ A light, easy notepad where formatting shows up as you type. This one note cover
 - The **+** next to a folder makes a new note in it. Folders can hold as many subfolders as you like.
 - **Right-click** a note or folder for new folder, rename (F2), show in Explorer, and move to Recycle Bin.
 - **Search** (Ctrl+P): looks through file names and contents in every folder.
+- **Drag a note or folder** in the sidebar onto another folder to move it. Images and links in the note, and links in other notes pointing to it, are updated too.
 - Open files from elsewhere by dragging them onto the window or with ⋯ › Open file (Ctrl+O). They show up under "Open documents" in the sidebar.
 
 ## `/` commands
@@ -43,6 +44,14 @@ No need to remember shortcuts. Type `/` at the start of a line or after a space 
 - Type a **space** or press Esc to close the list; the `/` stays as plain text.
 - Commands: headings 1–3 · bulleted list · numbered list · to-do · quote · small text · code block · table · divider · web link · note link · copy link to this line · file link · folder link · image · audio · video · clipboard image · date and time · today's date
 - A `/` right after a letter, as in `10/15` or `a/b`, doesn't open the list.
+
+## Lists and toggles
+
+- Press **Enter** on a bulleted, numbered, to-do or quote line and the next line gets the same marker. Press it again on an empty item to end the list.
+- **Tab** / **Shift+Tab** indent and outdent list items.
+- Type `>>` and a space at the start of a line to make a **toggle** (a block that folds open and closed). You can also use `/toggle` or the Format menu.
+- Click the ▶ in front of the title, or press **Ctrl+Enter** on the title line, to fold and unfold it. Anything can go inside — lists, images and more.
+- Toggles are saved as `<details>`, which also folds on GitHub and in VS Code.
 
 ---
 
@@ -72,6 +81,7 @@ Formatting appears as soon as you type the symbols, and the symbols only show (f
 - `- [ ] to do` · `- [x] done` → checkbox (click to check)
 - `> quote` → a quote with a bar on the left
 - `-# small text` → small gray side note
+- `>> Title` → a toggle that folds open and closed (it changes as soon as you type the space)
 - `---` → horizontal divider
 
 ### Multi-line styles
@@ -122,6 +132,15 @@ fn main() {
 | --- | --- |
 | Find | Ctrl+F |
 | Replace | Ctrl+H |
+
+#### Toggle
+
+<details>
+<summary>Click to unfold</summary>
+
+This was folded away. Toggles can hold lists and images too.
+
+</details>
 
 ---
 
@@ -175,6 +194,7 @@ fn main() {
 - .txt files open as plain text and are saved back to the same file with the same encoding (UTF-8, ANSI…) and line endings.
 - Change the encoding and line endings (CRLF · LF) by clicking them in the status bar.
 - ⋯ › Export as HTML saves a web page. Audio and video use the browser's player.
+- **Previous versions** (⋯ › Edit › Previous versions, or right-click in the sidebar): see and restore what was kept every 5 minutes while you edit, and whenever a lot was deleted.
 - If a note changes outside the app, it's reloaded automatically. If it changed in both places, you're asked which to keep.
 
 ## Shortcuts
@@ -184,6 +204,7 @@ fn main() {
 - Ctrl+B bold · Ctrl+I italic · Ctrl+K link · Ctrl+Alt+1–3 headings
 - Ctrl+Shift+K insert note link · Ctrl+Shift+L copy link to this line · Ctrl+click follow a link
 - `/` command list (find and run commands by name instead of shortcuts)
+- Enter continues lists · Tab / Shift+Tab indent · Ctrl+Enter folds a toggle
 - Ctrl+V paste (images too) · Ctrl+Z / Ctrl+Y undo / redo
 - Ctrl+E source view · Ctrl+, settings · F11 full screen
 
@@ -192,3 +213,5 @@ fn main() {
 AI apps like Claude can read and write the notes on this PC (no cloud, no login). Register `TB-Notepad.exe --mcp` in the AI app's settings and it can list, read, search, create and edit notes.
 
 -# Settings and open documents are kept in %APPDATA%\tb-notepad. Put a portable.txt next to the exe to keep them in a data folder beside it instead.
+
+-# Get new versions from ⋯ › Get the latest version, and tell us about problems with ⋯ › Report a problem.

@@ -82,6 +82,22 @@ No cloud, no login, and it never leaves your notes folders. → [Details](docs/M
 
 </td>
 </tr>
+<tr>
+<td valign="top">
+
+### 🗂️ Lists and toggles
+Enter continues lists and to-dos, Tab / Shift+Tab indent them.
+Type `>>` + space for a Notion-style **toggle**; fold it with ▶ or Ctrl+Enter.
+
+</td>
+<td valign="top">
+
+### 🛟 Move and recover
+Drag notes and folders in the sidebar to move them — images and links are fixed for you.
+**Previous versions** keeps snapshots while you edit, so you can restore an accidental deletion.
+
+</td>
+</tr>
 </table>
 
 <div align="center">
@@ -116,6 +132,7 @@ No cloud, no login, and it never leaves your notes folders. → [Details](docs/M
 | `**bold**` `*italic*` `~~strike~~` `` `code` `` | **bold** *italic* ~~strike~~ `code` |
 | `- item` · `1. item` · `- [ ] to-do` | Bulleted list · numbered list · clickable checkbox |
 | `> quote` · `-# small text` · `---` | Quote bar · small gray text · divider |
+| `>> Title` | Toggle that folds open and closed (saved as `<details>`) |
 | `\| cell \| cell \|` + `\| --- \| --- \|` | Table (`:---:` center, `---:` right aligned) |
 | `![alt](image.png "width=50% align=center")` | Image with size and position |
 | `![alt](song.mp3)` · `![alt](clip.mp4)` | Audio card · video card |
@@ -138,6 +155,8 @@ Also: code blocks (```` ``` ````), HTML export, find and replace, and search acr
 | Ctrl+Alt+1–3 | Heading 1–3 |
 | `/` | Command list (at line start or after a space; space closes it) |
 | Ctrl+Shift+K | Insert note link |
+| Enter · Tab / Shift+Tab | Continue a list · indent / outdent list items |
+| Ctrl+Enter | Fold / unfold a toggle |
 | Ctrl+Shift+L | Copy hyperlink to this line (or heading) |
 | Ctrl+click | Follow a link (web · note · line · folder · file) |
 | Ctrl+V | Paste (pastes the image if the clipboard only has one) |

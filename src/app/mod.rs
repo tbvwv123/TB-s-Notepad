@@ -8,12 +8,14 @@ mod edit_menu;
 mod editor;
 mod files;
 mod find;
+mod history_ui;
 mod images;
 mod input;
 mod media_cards;
 mod note_links;
 mod settings_ui;
 mod slash;
+mod typing;
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -30,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use crate::document::{DiskEvent, DiskStamp, Document, LineEnding, TextEncoding, remap_char_index};
 use crate::fonts::{FontLibrary, bold_family, doc_family, editor_family};
 use crate::i18n::Lang;
+use crate::links;
 use crate::live::{self, Deco, ImgAlign, LiveStyle};
 use crate::markdown::{self, HighlightStyle, MdAction};
 use crate::settings::{Palette, Settings, ThemePreset, ViewMode, c, mix};
@@ -188,6 +191,8 @@ pub struct NotepadApp {
     slash: Option<slash::SlashMenu>,
     /// 오른쪽 클릭 메뉴를 열 때의 선택: (문서 id, 글자 범위)
     menu_sel: Option<(u64, Range<usize>)>,
+    /// 이전 버전 창
+    history_view: Option<history_ui::HistoryView>,
 }
 
 impl NotepadApp {
@@ -251,6 +256,7 @@ impl NotepadApp {
             link_picker: None,
             slash: None,
             menu_sel: None,
+            history_view: None,
         };
 
         for sd in session.docs {
@@ -290,8 +296,23 @@ impl NotepadApp {
         }
         // 글꼴은 다음 프레임부터 적용되므로, 첫 프레임 전에 미리 설정해 둡니다.
         app.apply_look(&cc.egui_ctx);
+        app.report_previous_crash();
         crate::paste_hook::install(cc);
         app
+    }
+
+    /// 지난번에 오류로 꺼졌으면 알려 주고, 기록은 `crash-previous.log` 로 옮겨 둡니다.
+    fn report_previous_crash(&mut self) {
+        let log = crate::crash_log_path();
+        if !log.exists() {
+            return;
+        }
+        let kept = log.with_file_name("crash-previous.log");
+        let shown = if std::fs::rename(&log, &kept).is_ok() { kept } else { log };
+        self.dialog = Some(Dialog::Message(tf!(
+            "지난번에 오류로 프로그램이 꺼졌습니다.\n\n기록 파일: {}\n\n⋯ › 문제 알리기에서 이 파일 내용을 함께 보내 주시면 고치는 데 큰 도움이 됩니다.",
+            shown.display()
+        )));
     }
 
     fn doc(&self) -> &Document {
@@ -443,7 +464,7 @@ impl eframe::App for NotepadApp {
         let ctx = ui.ctx().clone();
         self.settings.clamp();
         self.apply_look(&ctx);
-        if self.dialog.is_none() && self.link_picker.is_none() {
+        if self.dialog.is_none() && self.link_picker.is_none() && self.history_view.is_none() {
             self.handle_shortcuts(&ctx);
         }
         self.handle_dropped_files(&ctx);
@@ -498,6 +519,7 @@ impl eframe::App for NotepadApp {
         self.settings_window(&ctx);
         self.dialogs(&ctx);
         self.link_picker_ui(&ctx);
+        self.history_ui(&ctx);
         self.drop_overlay(&ctx);
     }
 

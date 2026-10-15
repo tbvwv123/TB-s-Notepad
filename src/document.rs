@@ -247,6 +247,9 @@ impl Document {
             self.encoding = TextEncoding::Utf8;
         }
 
+        // 덮어쓰기 전의 파일을 (가끔씩) 버전 기록으로 남김
+        crate::history::record_before_save(path, &bytes);
+
         // 임시 파일에 쓴 뒤 교체해서, 저장 도중 문제가 생겨도 원본이 망가지지 않게 합니다.
         let tmp = path.with_extension(format!("{}.tbtmp", path.extension().and_then(|e| e.to_str()).unwrap_or("")));
         std::fs::write(&tmp, &bytes)?;

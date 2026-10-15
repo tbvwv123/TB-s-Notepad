@@ -163,11 +163,9 @@ pub fn link_dest(path: &Path, anchor: Option<&str>) -> String {
     if s.contains([' ', '(', ')', '<', '>']) { format!("<{s}>") } else { s }
 }
 
-/// 붙여넣는 글 속 `[..](절대 경로)` 링크를, 같은 메모 폴더 안이면 지금 메모 기준 상대 경로로 바꿉니다.
-/// ("이 줄 링크 복사" · "링크 복사"는 어디에 붙일지 몰라 절대 경로로 복사합니다.)
-pub fn relativize_links(text: &str, doc_dir: &Path, roots: &[PathBuf]) -> Option<String> {
-    let root_of = |p: &Path| roots.iter().find(|r| p.starts_with(r)).cloned();
-    let doc_root = root_of(doc_dir)?;
+/// 글 속 `[..](주소)` · `![..](주소)` 의 주소마다 `f` 를 불러, `Some(새 주소)` 면 바꿉니다.
+/// 하나도 안 바뀌면 `None`. 주소 뒤의 제목(`"width=50%"`)은 그대로 둡니다.
+fn map_link_dests(text: &str, mut f: impl FnMut(&str) -> Option<String>) -> Option<String> {
     let mut out = String::with_capacity(text.len());
     let mut changed = false;
     let mut rest = text;
@@ -183,27 +181,88 @@ pub fn relativize_links(text: &str, doc_dir: &Path, roots: &[PathBuf]) -> Option
             let e = rest.find([')', ' ', '\n']).unwrap_or(rest.len());
             (&rest[..e], &rest[e..])
         };
-        let replaced = parse(raw, None).and_then(|t| {
-            let path = t.path?;
-            if root_of(&path).as_ref() != Some(&doc_root) {
-                return None;
-            }
-            let rel = relative_path(doc_dir, &path)?;
-            let inner = raw.trim_start_matches('<').trim_end_matches('>');
-            let anchor = inner.rsplit_once('#').map(|(_, a)| a).filter(|_| t.anchor.is_some());
-            Some(link_dest(&rel, anchor))
-        });
-        match replaced {
-            Some(r) => {
+        match f(raw) {
+            Some(r) if r != raw => {
                 out.push_str(&r);
                 changed = true;
             }
-            None => out.push_str(raw),
+            _ => out.push_str(raw),
         }
         rest = after;
     }
     out.push_str(rest);
     changed.then_some(out)
+}
+
+/// 주소 원문에서 `#` 뒤의 위치 (줄·제목)
+fn anchor_of(raw: &str) -> Option<&str> {
+    raw.trim_start_matches('<').trim_end_matches('>').rsplit_once('#').map(|(_, a)| a)
+}
+
+/// 붙여넣는 글 속 `[..](절대 경로)` 링크를, 같은 메모 폴더 안이면 지금 메모 기준 상대 경로로 바꿉니다.
+/// ("이 줄 링크 복사" · "링크 복사"는 어디에 붙일지 몰라 절대 경로로 복사합니다.)
+pub fn relativize_links(text: &str, doc_dir: &Path, roots: &[PathBuf]) -> Option<String> {
+    let root_of = |p: &Path| roots.iter().find(|r| p.starts_with(r)).cloned();
+    let doc_root = root_of(doc_dir)?;
+    map_link_dests(text, |raw| {
+        let t = parse(raw, None)?;
+        let path = t.path?;
+        if root_of(&path).as_ref() != Some(&doc_root) {
+            return None;
+        }
+        let rel = relative_path(doc_dir, &path)?;
+        Some(link_dest(&rel, anchor_of(raw).filter(|_| t.anchor.is_some())))
+    })
+}
+
+/// `..` 과 `.` 을 정리한 경로 (디스크를 보지 않음)
+pub fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// 파일·폴더를 `moved_from` 에서 `moved_to` 로 옮긴 뒤, 한 메모(`old_dir` 에 있다가 지금은 `new_dir`)의 링크를 고칩니다.
+/// 옮긴 것을 가리키던 링크와, 메모 자신이 옮겨져서 상대 경로가 달라진 링크(그림 포함)를 새 위치로 바꿉니다.
+/// 웹 주소 · `#` 만 있는 링크 · 지금도 없는 파일을 가리키는 링크는 그대로 둡니다.
+pub fn rebase_links(text: &str, old_dir: &Path, new_dir: &Path, moved_from: &Path, moved_to: &Path) -> Option<String> {
+    map_link_dests(text, |raw| {
+        let inner = raw.trim_start_matches('<').trim_end_matches('>');
+        if inner.starts_with('#') || inner.contains("://") || inner.starts_with("mailto:") || inner.starts_with("data:")
+        {
+            return None;
+        }
+        let t = parse(raw, Some(old_dir))?;
+        let old_target = normalize(&t.path?);
+        let new_target = match old_target.strip_prefix(moved_from) {
+            Ok(rest) if rest.as_os_str().is_empty() => moved_to.to_path_buf(),
+            Ok(rest) => moved_to.join(rest),
+            Err(_) => old_target.clone(),
+        };
+        if new_target == old_target && new_dir == old_dir {
+            return None;
+        }
+        if !new_target.exists() {
+            return None;
+        }
+        let anchor = anchor_of(raw).filter(|_| t.anchor.is_some());
+        // 원래 절대 경로로 썼으면 절대 경로로
+        let was_absolute = crate::media::local_link_target(inner.split('#').next().unwrap_or(inner), None).is_some();
+        if was_absolute {
+            return Some(link_dest(&new_target, anchor));
+        }
+        Some(link_dest(&relative_path(new_dir, &new_target)?, anchor))
+    })
 }
 
 #[cfg(test)]
@@ -245,6 +304,35 @@ mod tests {
         assert_eq!(r, Path::new("..").join("..").join("c").join("d.md"));
         assert_eq!(relative_path(Path::new("C:/n"), Path::new("C:/n/x.md")).unwrap(), Path::new("x.md"));
         assert_eq!(relative_path(Path::new("C:/n"), Path::new("D:/x.md")), None);
+    }
+
+    #[test]
+    fn links_follow_moves() {
+        let base = std::env::temp_dir().join(format!("tbn_rebase_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        for d in ["notes/a/images", "notes/b", "notes/c"] {
+            std::fs::create_dir_all(base.join(d)).unwrap();
+        }
+        std::fs::write(base.join("notes/a/images/p.png"), b"x").unwrap();
+        std::fs::write(base.join("notes/b/target.md"), b"x").unwrap();
+        let (a, b, c) = (base.join("notes/a"), base.join("notes/b"), base.join("notes/c"));
+
+        // 메모가 a → c 로 옮겨짐: 그림과 다른 메모 링크가 새 위치 기준으로
+        let note = "![p](images/p.png \"width=50%\") [t](../b/target.md#L3) [web](https://x.y) [없음](nope.md)";
+        let out = rebase_links(note, &a, &c, &a.join("n.md"), &c.join("n.md")).unwrap();
+        assert_eq!(
+            out,
+            "![p](../a/images/p.png \"width=50%\") [t](../b/target.md#L3) [web](https://x.y) [없음](nope.md)"
+        );
+
+        // b/target.md → c/target.md 로 옮김: 그걸 가리키던 다른 메모의 링크가 따라감
+        std::fs::rename(b.join("target.md"), c.join("target.md")).unwrap();
+        let other = "[t](../b/target.md#결정) [p](images/p.png)";
+        let out = rebase_links(other, &a, &a, &b.join("target.md"), &c.join("target.md")).unwrap();
+        assert_eq!(out, "[t](../c/target.md#결정) [p](images/p.png)");
+        // 상관없는 메모는 그대로
+        assert_eq!(rebase_links("[p](images/p.png)", &a, &a, &b, &c), None);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

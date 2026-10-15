@@ -56,6 +56,9 @@ impl NotepadApp {
         // / 명령 목록이 열려 있으면 ↑↓ · Enter · Esc 는 목록이 받음
         let slash_key = if ctx.memory(|m| m.has_focus(id)) { self.slash_keys(&ctx, id) } else { None };
         let typed_slash = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('/'))));
+        let typed_space = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == " ")));
+        // 목록 이어 쓰기 · 들여쓰기 · 토글 접기 (TextEdit 이 Enter/Tab 을 받기 전에)
+        self.editing_keys(&ctx, id);
         // 오른쪽 클릭하면 TextEdit 이 커서를 옮겨 선택이 풀리므로, 그 전의 선택을 기억해 둠
         let right_press = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
         let sel_before = if right_press {
@@ -316,6 +319,7 @@ impl NotepadApp {
         });
 
         self.slash_menu(&ctx, id, typed_slash, caret_rect, editor_focused, slash_key);
+        self.auto_toggle(&ctx, id, typed_space);
         if let Some(what) = menu_pick
             && let Some((d, sel)) = self.menu_sel.take()
             && d == doc_id
@@ -347,6 +351,11 @@ impl NotepadApp {
         }
         if let Some(a) = decorations.media_action {
             self.apply_media_action(&ctx, a);
+        }
+        if let Some(byte) = decorations.flip_toggle {
+            self.flip_toggle(&ctx, id, byte, last_cursor);
+        } else if editor_focused {
+            self.clamp_toggle_cursor(&ctx, id);
         }
         if let Some(url) = decorations.follow_link {
             self.follow_link(&ctx, &url);

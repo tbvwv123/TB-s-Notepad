@@ -60,6 +60,11 @@ impl NotepadApp {
             if item(ui, t!("그림 · 소리 · 영상 넣기…"), "") {
                 self.insert_image_dialog();
             }
+            if let Some(p) = self.doc().path.clone()
+                && item(ui, t!("이전 버전…"), "")
+            {
+                self.open_history(&p);
+            }
             if item(ui, t!("메모 링크 넣기…"), "Ctrl+Shift+K") {
                 self.open_link_picker();
             }
@@ -102,6 +107,7 @@ impl NotepadApp {
                     (t!("번호 목록"), MdAction::Numbered),
                     (t!("할 일 목록"), MdAction::Task),
                     (t!("인용"), MdAction::Quote),
+                    (t!("토글  >>"), MdAction::Toggle),
                     (t!("작은 글씨  -#"), MdAction::Subtext),
                     (t!("코드 블록"), MdAction::CodeBlock),
                     (t!("표"), MdAction::Table),
@@ -167,6 +173,12 @@ impl NotepadApp {
         }
         if item(ui, t!("정보"), "") {
             self.open_settings(SettingsPage::About);
+        }
+        if item(ui, t!("새 버전 받기…"), "") {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(format!("{}/releases/latest", crate::REPO_URL)));
+        }
+        if item(ui, t!("문제 알리기…"), "") {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(format!("{}/issues/new", crate::REPO_URL)));
         }
         ui.separator();
         if item(ui, t!("끝내기"), "Alt+F4") {

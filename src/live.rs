@@ -41,6 +41,9 @@ pub enum Deco {
     },
     /// 코드 블록 배경
     CodeBlock { start: usize, end: usize },
+    /// 토글 제목 줄의 ▶ / ▼. `details_byte` 는 `<details>` 줄의 시작 바이트 (누르면 open 을 바꿈),
+    /// `depth` 는 바깥 토글 수 (들여쓰기), `empty` 는 제목이 비었는지
+    Toggle { at: usize, open: bool, details_byte: usize, depth: usize, empty: bool },
     /// 커서가 밖에 있는 표: 원문은 숨기고 칸과 선으로 그립니다 (구분 줄 `| --- |` 은 행에 없음)
     Table { rows: Vec<TableRow>, aligns: Vec<ImgAlign>, row_height: f32 },
     /// Ctrl+클릭으로 열 링크
@@ -121,12 +124,15 @@ struct Builder<'a> {
     st: &'a LiveStyle,
     chars: usize,
     decos: Vec<Deco>,
+    /// 이 줄 첫 글자 앞에 둘 빈 칸 (토글 안 들여쓰기)
+    lead: f32,
 }
 
 impl<'a> Builder<'a> {
     fn push(&mut self, s: &str, f: TextFormat) {
         if !s.is_empty() {
-            self.job.append(s, 0.0, f);
+            let lead = std::mem::take(&mut self.lead);
+            self.job.append(s, lead, f);
             self.chars += s.chars().count();
         }
     }
@@ -157,7 +163,7 @@ impl<'a> Builder<'a> {
 pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
     let st = input.style;
     let text = input.text;
-    let mut b = Builder { job: LayoutJob::default(), st, chars: 0, decos: Vec::new() };
+    let mut b = Builder { job: LayoutJob::default(), st, chars: 0, decos: Vec::new(), lead: 0.0 };
     let mut image_uris = Vec::new();
 
     if text.len() > MAX_LIVE_BYTES {
@@ -167,6 +173,10 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
     }
 
     let tables = find_tables(text);
+    let toggles = find_toggles(text);
+    let indent_w = st.size * TOGGLE_INDENT_SCALE;
+    // 접힌 토글이라도 커서가 그 안에 들어가면 펼쳐 보여 줌
+    let shown_open = |t: &ToggleBlock| t.open || input.active_line.is_some_and(|a| a > t.summary && a < t.close);
     let mut table_rows: Vec<TableRow> = Vec::new();
     let mut fence: Option<(&str, usize)> = None; // (여는 기호, 블록 시작 글자 위치)
     for (line_no, line) in text.split_inclusive('\n').enumerate() {
@@ -181,6 +191,44 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
         let trimmed = body.trim_start();
         let indent = body.len() - trimmed.len();
         let is_fence = ["```", "~~~"].into_iter().find(|f| trimmed.starts_with(f));
+
+        // 토글: 접힌 내용은 숨기고, <details> · </details> 줄은 커서가 있을 때만 흐리게
+        b.lead = 0.0;
+        if fence.is_none() {
+            if toggles.iter().any(|t| !shown_open(t) && line_no > t.summary && line_no <= t.close) {
+                let f = b.hidden();
+                b.push(line, f);
+                continue;
+            }
+            if toggles.iter().any(|t| line_no == t.details || line_no == t.close) {
+                let f = if active { b.fmt(&st.mono, 0.85, st.muted) } else { b.hidden() };
+                b.push(line, f);
+                continue;
+            }
+            if let Some(t) = toggles.iter().find(|t| line_no == t.summary) {
+                let title = crate::editing::summary_line(body).unwrap_or(0..0);
+                b.lead = (t.depth + 1) as f32 * indent_w;
+                // <summary> 태그는 커서가 있어도 숨김 (커서는 제목 안에만 머묾)
+                let m = b.hidden();
+                b.push(&body[..title.start], m.clone());
+                let base = b.body();
+                inline(&mut b, &body[title.clone()], &base, active);
+                b.push(&body[title.end..], m);
+                let nl_f = b.body();
+                b.push(nl, nl_f);
+                b.decos.push(Deco::Toggle {
+                    at: line_start_char,
+                    open: shown_open(t),
+                    details_byte: t.details_byte,
+                    depth: t.depth,
+                    empty: title.is_empty(),
+                });
+                continue;
+            }
+            // 펼친 토글 안의 줄은 들여씀
+            let depth = toggles.iter().filter(|t| line_no > t.summary && line_no < t.close).count();
+            b.lead = depth as f32 * indent_w;
+        }
 
         // ``` 코드 블록
         if let Some((open, start)) = fence {
@@ -409,6 +457,64 @@ enum ListKind {
 struct ListMarker {
     kind: ListKind,
     len: usize,
+}
+
+/// 토글 들여쓰기 한 단계 (글자 크기 대비). 꾸밈 그리기에서도 씀
+pub const TOGGLE_INDENT_SCALE: f32 = 1.4;
+
+/// 토글 한 덩어리 (줄 번호): `<details>` · `<summary>` · `</details>`
+struct ToggleBlock {
+    details: usize,
+    summary: usize,
+    close: usize,
+    open: bool,
+    /// 바깥 토글 수
+    depth: usize,
+    details_byte: usize,
+}
+
+/// 문서의 토글들 (코드 블록 안은 빼고, 닫히지 않은 것도 뺌)
+fn find_toggles(text: &str) -> Vec<ToggleBlock> {
+    use crate::editing::{is_toggle_close, summary_line, toggle_open_line};
+    let mut lines = Vec::new();
+    let mut at = 0;
+    for l in text.split('\n') {
+        lines.push((at, l.strip_suffix('\r').unwrap_or(l)));
+        at += l.len() + 1;
+    }
+    let mut out = Vec::new();
+    let mut stack: Vec<(usize, bool, usize)> = Vec::new(); // (<details> 줄, open, 바이트)
+    let mut in_fence = false;
+    let mut i = 0;
+    while i < lines.len() {
+        let (byte, l) = lines[i];
+        let t = l.trim_start();
+        if t.starts_with("```") || t.starts_with("~~~") {
+            in_fence = !in_fence;
+        } else if !in_fence {
+            if let Some(open) = toggle_open_line(l)
+                && lines.get(i + 1).is_some_and(|(_, next)| summary_line(next).is_some())
+            {
+                stack.push((i, open, byte));
+                i += 2;
+                continue;
+            }
+            if is_toggle_close(l)
+                && let Some((details, open, details_byte)) = stack.pop()
+            {
+                out.push(ToggleBlock {
+                    details,
+                    summary: details + 1,
+                    close: i,
+                    open,
+                    depth: stack.len(),
+                    details_byte,
+                });
+            }
+        }
+        i += 1;
+    }
+    out
 }
 
 /// 표 한 행의 높이 (글자 크기 대비)
@@ -858,6 +964,27 @@ mod tests {
         let p = parse_image_line(&line).unwrap();
         assert_eq!((p.alt, p.dest, p.width, p.align), ("고양이", "my cat.png", Some(55), ImgAlign::Right));
         assert_eq!(format_image_line("a", "b.png", None, ImgAlign::Left), "![a](b.png)");
+    }
+
+    #[test]
+    fn toggles_fold_their_content() {
+        let text = "앞\n<details>\n<summary>회의 메모</summary>\n\n- 안건\n\n</details>\n뒤";
+        let out = run(text, None, None);
+        assert_eq!(out.job.text, text);
+        let toggle = out.decos.iter().find_map(|d| match d {
+            Deco::Toggle { open, details_byte, depth, empty, .. } => Some((*open, *details_byte, *depth, *empty)),
+            _ => None,
+        });
+        assert_eq!(toggle, Some((false, 4, 0, false)));
+        assert!(!out.decos.iter().any(|d| matches!(d, Deco::Bullet { .. })), "접힌 안쪽 목록은 숨김");
+        // 펼치면 안쪽이 보이고, 커서가 안에 있으면 접혀 있어도 펼쳐 보여 줌
+        let open = run(&text.replace("<details>", "<details open>"), None, None);
+        assert!(open.decos.iter().any(|d| matches!(d, Deco::Bullet { .. })));
+        let inside = run(text, Some(4), None);
+        assert!(inside.decos.iter().any(|d| matches!(d, Deco::Toggle { open: true, .. })));
+        // 코드 블록 안의 <details> 는 토글이 아님
+        let code = run("```\n<details>\n<summary>x</summary>\n</details>\n```\n", None, None);
+        assert!(!code.decos.iter().any(|d| matches!(d, Deco::Toggle { .. })));
     }
 
     #[test]
