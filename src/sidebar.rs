@@ -30,9 +30,14 @@ pub enum Action {
     NewQuickNote,
     AddRoot,
     RemoveRoot(PathBuf),
-    Rename { from: PathBuf, to_name: String },
+    Rename {
+        from: PathBuf,
+        to_name: String,
+    },
     Delete(PathBuf),
     Reveal(PathBuf),
+    /// 이 파일·폴더를 가리키는 링크를 클립보드로
+    CopyLink(PathBuf),
     ActivateDoc(u64),
     CloseDoc(u64),
 }
@@ -55,6 +60,8 @@ pub struct Sidebar {
     cache: HashMap<PathBuf, (Instant, Vec<Entry>)>,
     renaming: Option<(PathBuf, String, bool)>,
     search: Option<(String, Instant, Vec<PathBuf>)>,
+    /// 링크로 찾아온 폴더: 잠시 강조하고 한 번 그 자리로 스크롤
+    flash: Option<(PathBuf, Instant, bool)>,
 }
 
 pub fn is_note(path: &Path) -> bool {
@@ -86,6 +93,18 @@ impl Sidebar {
                 }
             }
         }
+    }
+
+    /// 링크로 찾아온 폴더를 펼쳐서 보여 주고 잠시 강조합니다.
+    pub fn focus_folder(&mut self, dir: &Path, roots: &[PathBuf]) {
+        self.query.clear();
+        self.reveal(dir, roots);
+        if roots.iter().any(|r| r == dir) {
+            self.collapsed_roots.remove(dir);
+        } else {
+            self.expanded.insert(dir.to_path_buf());
+        }
+        self.flash = Some((dir.to_path_buf(), Instant::now(), true));
     }
 
     pub fn start_rename(&mut self, path: &Path) {
@@ -172,6 +191,7 @@ impl Sidebar {
                 let name = display_name(root, true);
                 let name = if name.is_empty() { root.display().to_string() } else { name };
                 let header = root_header(ui, &name, collapsed, k);
+                self.scroll_to_flash(root, &header);
                 let tip = root.display().to_string();
                 let header = header.on_hover_text(tip);
                 let plus = hover_icon_always(ui, &header, Icon::Plus, "이 폴더에 새 메모", k);
@@ -195,6 +215,10 @@ impl Sidebar {
                     }
                     if ui.button("탐색기에서 열기").clicked() {
                         actions.push(Action::Reveal(root.clone()));
+                        ui.close();
+                    }
+                    if ui.button("링크 복사").clicked() {
+                        actions.push(Action::CopyLink(root.clone()));
                         ui.close();
                     }
                     ui.separator();
@@ -270,7 +294,9 @@ impl Sidebar {
             }
 
             let icon = if e.is_dir { RowIcon::Folder { open } } else { RowIcon::Note };
-            let resp = tree_row(ui, depth, icon, &e.name, is_active, false, k);
+            let flashing = self.flashing(&e.path);
+            let resp = tree_row(ui, depth, icon, &e.name, is_active || flashing, false, k);
+            self.scroll_to_flash(&e.path, &resp);
             if e.is_dir {
                 let plus = hover_icon(ui, &resp, Icon::Plus, "이 폴더에 새 메모", k);
                 if plus {
@@ -314,6 +340,10 @@ impl Sidebar {
                     actions.push(Action::Reveal(e.path.clone()));
                     ui.close();
                 }
+                if ui.button("링크 복사").clicked() {
+                    actions.push(Action::CopyLink(e.path.clone()));
+                    ui.close();
+                }
                 ui.separator();
                 if ui.button("휴지통으로 옮기기").clicked() {
                     actions.push(Action::Delete(e.path.clone()));
@@ -323,6 +353,23 @@ impl Sidebar {
             if open {
                 self.tree(ui, &e.path, depth + 1, active, image_folder, actions, k);
             }
+        }
+    }
+
+    fn flashing(&self, path: &Path) -> bool {
+        self.flash.as_ref().is_some_and(|(p, t, _)| p == path && t.elapsed() < Duration::from_millis(2500))
+    }
+
+    fn scroll_to_flash(&mut self, path: &Path, resp: &Response) {
+        if let Some((p, t, scroll)) = &mut self.flash
+            && p == path
+        {
+            if *scroll {
+                resp.scroll_to_me(Some(egui::Align::Center));
+                *scroll = false;
+            }
+            // 강조가 끝날 때 한 번 더 그려서 지움
+            resp.ctx.request_repaint_after(Duration::from_millis(2500).saturating_sub(t.elapsed()));
         }
     }
 
@@ -367,6 +414,29 @@ impl Sidebar {
             if resp.on_hover_text(folder).clicked() {
                 actions.push(Action::Open(p.clone()));
             }
+        }
+    }
+}
+
+/// 폴더 안의 하위 폴더와 메모 파일을 모두 훑습니다 (사이드바에 보이는 것과 같은 것만, 깊이·개수 제한)
+pub fn walk_tree(dir: &Path, skip_name: &str, depth: usize, f: &mut dyn FnMut(&Path, bool)) {
+    if depth > 8 {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten().take(3000) {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || name.starts_with('~') {
+            continue;
+        }
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            if !SKIP_DIRS.iter().any(|s| s.eq_ignore_ascii_case(&name)) && !name.eq_ignore_ascii_case(skip_name) {
+                f(&path, true);
+                walk_tree(&path, skip_name, depth + 1, f);
+            }
+        } else if is_note(&path) {
+            f(&path, false);
         }
     }
 }

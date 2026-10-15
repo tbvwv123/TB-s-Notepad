@@ -1,9 +1,11 @@
 //! 문서 모드 꾸밈 그리기: 코드 블록 배경, 인용 막대, 목록 점, 체크박스, 구분선,
-//! 그림(선택 테두리·크기 손잡이), Ctrl+클릭 링크.
+//! 그림(선택 테두리·크기 손잡이), 소리·영상 카드, Ctrl+클릭 링크(웹 주소는 브라우저, 나머지는 `note_links.rs`).
 //!
 //! 무엇을 어디에 그릴지는 `live.rs`가 [`Deco`]로 알려 주고, 여기서는 배치된 글자 위치에 맞춰 그립니다.
 
+use super::media_cards::{MediaAction, MediaHub, audio_card, media_path, video_card};
 use super::*;
+use crate::media::MediaKind;
 
 /// 꾸밈을 그릴 때 필요한 편집기 상태
 pub(super) struct DecoView<'a> {
@@ -23,6 +25,7 @@ pub(super) struct DecoView<'a> {
     pub text: Color32,
     pub muted: Color32,
     pub accent: Color32,
+    pub media: &'a MediaHub,
 }
 
 /// 그린 결과와 사용자가 한 일
@@ -37,8 +40,13 @@ pub(super) struct DecoOutput {
     /// 누른 체크박스: (원문 바이트, 새 상태)
     pub toggle_task: Option<(usize, bool)>,
     pub image_action: Option<ImageAction>,
-    /// 도구 막대를 띄울 선택한 그림: (화면 위치, 줄 시작 바이트, 정렬)
-    pub image_toolbar: Option<(egui::Rect, usize, ImgAlign)>,
+    /// 도구 막대를 띄울 선택한 그림: (화면 위치, 줄 시작 바이트, 정렬, 종류)
+    pub image_toolbar: Option<(egui::Rect, usize, ImgAlign, MediaKind)>,
+    pub media_action: Option<MediaAction>,
+    /// 길이·첫 장면을 아직 모르는 소리·영상 파일
+    pub media_requests: Vec<PathBuf>,
+    /// Ctrl+클릭한 웹 주소가 아닌 링크 (메모 · 폴더 · 줄 · 이 PC의 파일)
+    pub follow_link: Option<String>,
 }
 
 impl DecoView<'_> {
@@ -56,8 +64,9 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
             Deco::Bullet { at, level } => bullet(view, *at, *level, &mut out),
             Deco::Task { at, checked, byte } => task(view, *at, *checked, *byte, &mut out),
             Deco::Rule { at } => rule(view, *at, &mut out),
-            Deco::Image { at, end, uri, size, top, align, line, max_w } => {
+            Deco::Image { kind, at, end, uri, size, top, align, line, max_w } => {
                 let img = ImageDeco {
+                    kind: *kind,
                     at: *at,
                     end: *end,
                     uri,
@@ -69,7 +78,7 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
                 };
                 image(ui, view, &img, &mut out);
             }
-            Deco::Link { start, end, url } => link(ui, view, *start, *end, url),
+            Deco::Link { start, end, url } => link(ui, view, *start, *end, url, &mut out),
         }
     }
     out
@@ -150,6 +159,7 @@ fn rule(v: &DecoView<'_>, at: usize, out: &mut DecoOutput) {
 }
 
 struct ImageDeco<'a> {
+    kind: MediaKind,
     at: usize,
     end: usize,
     uri: &'a str,
@@ -173,8 +183,9 @@ fn image(ui: &mut Ui, v: &DecoView<'_>, img: &ImageDeco<'_>, out: &mut DecoOutpu
         return;
     }
     let ctx = ui.ctx().clone();
-    if let Ok(egui::load::TexturePoll::Ready { texture }) =
-        ctx.try_load_texture(img.uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
+    if img.kind == MediaKind::Image
+        && let Ok(egui::load::TexturePoll::Ready { texture }) =
+            ctx.try_load_texture(img.uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
     {
         let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         out.fg.push(Shape::image(texture.id, r, uv, Color32::WHITE));
@@ -187,6 +198,13 @@ fn image(ui: &mut Ui, v: &DecoView<'_>, img: &ImageDeco<'_>, out: &mut DecoOutpu
     let selected = v.selected_image == Some(img.line_start);
     if resp.clicked() {
         out.image_action = Some(ImageAction::Select(img.line_start));
+    }
+    // 소리·영상 카드 (재생 버튼은 줄 선택보다 나중에 등록해서 먼저 눌리게)
+    if let Some(path) = media_path(img.kind, img.uri) {
+        match img.kind {
+            MediaKind::Audio => audio_card(ui, v, r, &path, img_id, out),
+            _ => video_card(ui, v, r, &path, img_id, &resp, out),
+        }
     }
     let border = if selected {
         Stroke::new(2.0, v.accent)
@@ -227,10 +245,10 @@ fn image(ui: &mut Ui, v: &DecoView<'_>, img: &ImageDeco<'_>, out: &mut DecoOutpu
             out.image_action = Some(ImageAction::Width(img.line_start, Some(pct)));
         }
     }
-    out.image_toolbar = Some((r, img.line_start, img.align));
+    out.image_toolbar = Some((r, img.line_start, img.align, img.kind));
 }
 
-fn link(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, url: &str) {
+fn link(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, url: &str, out: &mut DecoOutput) {
     let (a, b) = (v.pos(start), v.pos(end));
     if (a.top() - b.top()).abs() > 1.0 {
         return; // 여러 줄에 걸친 링크는 첫 줄만 다루기 번거로워 건너뜀
@@ -243,7 +261,12 @@ fn link(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, url: &str) {
     if ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p)) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    if v.clicked_at.is_some_and(|p| r.contains(p)) && (url.starts_with("http://") || url.starts_with("https://")) {
+    if !v.clicked_at.is_some_and(|p| r.contains(p)) {
+        return;
+    }
+    if url.starts_with("http://") || url.starts_with("https://") {
         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+    } else {
+        out.follow_link = Some(url.to_owned());
     }
 }

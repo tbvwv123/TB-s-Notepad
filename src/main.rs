@@ -4,9 +4,11 @@
 mod app;
 mod document;
 mod fonts;
+mod links;
 mod live;
 mod markdown;
 mod mcp;
+mod media;
 mod paste_hook;
 mod settings;
 mod sidebar;

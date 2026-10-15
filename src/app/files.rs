@@ -359,6 +359,7 @@ impl NotepadApp {
                 Action::Reveal(p) => {
                     let _ = reveal_in_file_manager(&p);
                 }
+                Action::CopyLink(p) => self.copy_path_link(ctx, &p),
                 Action::ActivateDoc(id) => {
                     if let Some(i) = self.docs.iter().position(|d| d.id == id) {
                         self.set_active(i);
@@ -427,32 +428,11 @@ impl NotepadApp {
     }
 }
 
-pub(super) const WELCOME_NOTE: &str = "# 시작하기
+/// 처음 실행할 때 만드는 안내 메모. samples/환영합니다.md 가 원본입니다 (그 파일을 고치면 여기도 바뀜).
+pub(super) const WELCOME_NOTE: &str = include_str!("../../samples/환영합니다.md");
 
-TB's Notepad에 오신 것을 환영합니다. 쓰는 대로 바로 서식이 적용되는 메모장입니다.
-
-![예시 그림](images/welcome.png \"align=center\")
-
-## 이렇게 써 보세요
-
-- 줄 맨 앞에 `#` 과 띄어쓰기를 쓰면 **제목**이 됩니다
-- `-` 와 띄어쓰기로 목록을 만들고, `- [ ]` 로 할 일을 만듭니다
-- 글자를 고르고 Ctrl+B 를 누르면 **굵게**, Ctrl+I 는 *기울임*
-- 그림을 복사한 뒤 Ctrl+V 를 누르면 바로 들어갑니다
-- 그림을 누르면 크기와 위치를 바꾸거나 지울 수 있습니다
-
-## 할 일
-
-- [x] 메모장 설치하기
-- [ ] 왼쪽 사이드바의 + 로 새 메모 만들기
-- [ ] 오른쪽 위 ☀/🌙 로 테마 바꿔 보기
-- [ ] 위의 그림을 눌러 크기 바꿔 보기
-
-> 메모는 이 폴더(문서\\TB Notes)에 자동으로 저장됩니다. 다른 폴더는 사이드바의 '폴더 추가'로 더할 수 있습니다.
-";
-
-/// 시작 메모에 쓰는 예시 그림 (실행 파일에 들어 있음)
-pub(super) const WELCOME_IMAGE: &[u8] = include_bytes!("../../samples/images/banner.png");
+/// 안내 메모에 쓰는 예시 그림 (실행 파일에 들어 있음)
+pub(super) const WELCOME_IMAGE: &[u8] = include_bytes!("../../samples/images/welcome.png");
 
 /// `dir/시작하기.md` 와 예시 그림 `dir/images/welcome.png` 를 만듭니다.
 pub(super) fn write_welcome_note(dir: &Path) -> std::io::Result<()> {
@@ -537,5 +517,44 @@ mod tests {
         assert_eq!(title_from_text("\n\n# 장보기: 우유/빵\n내용"), Some("장보기 우유빵".to_owned()));
         assert_eq!(title_from_text("   \n"), None);
         assert_eq!(title_from_text("**중요** 회의"), Some("중요 회의".to_owned()));
+    }
+
+    /// 안내 메모(samples/환영합니다.md)가 문서 모드에서 깨지지 않는지
+    #[test]
+    fn welcome_note_renders_every_feature() {
+        let style = LiveStyle {
+            size: 16.0,
+            body: egui::FontFamily::Proportional,
+            bold: egui::FontFamily::Proportional,
+            mono: egui::FontFamily::Monospace,
+            text: Color32::BLACK,
+            muted: Color32::GRAY,
+            heading: Color32::BLUE,
+            code: Color32::RED,
+            code_bg: Color32::LIGHT_GRAY,
+            link: Color32::BLUE,
+            quote: Color32::DARK_GRAY,
+        };
+        let size = |_: &str| Some(egui::vec2(480.0, 200.0));
+        let out = live::layout(&live::LiveInput {
+            text: WELCOME_NOTE,
+            style: &style,
+            active_line: None,
+            base_dir: Some(Path::new("C:/notes")),
+            image_size: &size,
+            max_image_width: 700.0,
+        });
+        assert_eq!(out.job.text, WELCOME_NOTE);
+        let has = |f: fn(&Deco) -> bool| out.decos.iter().any(f);
+        assert!(has(|d| matches!(d, Deco::Image { align: ImgAlign::Center, .. })), "가운데 정렬 그림");
+        assert!(has(|d| matches!(d, Deco::Task { checked: true, .. })));
+        assert!(has(|d| matches!(d, Deco::Task { checked: false, .. })));
+        assert!(has(|d| matches!(d, Deco::Bullet { level: 1, .. })), "하위 목록");
+        assert!(has(|d| matches!(d, Deco::Quote { .. })));
+        assert!(has(|d| matches!(d, Deco::Rule { .. })));
+        assert!(has(|d| matches!(d, Deco::CodeBlock { .. })));
+        assert!(has(|d| matches!(d, Deco::Link { .. })));
+        // 모든 그림 경로는 실행 파일에 넣은 예시 그림 하나뿐
+        assert!(out.image_uris.iter().all(|u| u.ends_with("images/welcome.png")), "{:?}", out.image_uris);
     }
 }

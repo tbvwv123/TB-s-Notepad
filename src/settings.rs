@@ -304,6 +304,8 @@ pub struct Settings {
     pub image_folder: String,
     /// 다른 곳의 그림을 넣거나 문서를 저장할 때 그림을 문서 폴더에 복사해 함께 보관
     pub keep_images_with_doc: bool,
+    /// 소리 카드 재생 크기 (0~1)
+    pub audio_volume: f32,
 
     pub recent_files: Vec<PathBuf>,
 
@@ -339,6 +341,7 @@ impl Default for Settings {
             restore_session: true,
             image_folder: "images".to_owned(),
             keep_images_with_doc: true,
+            audio_volume: 0.8,
             recent_files: Vec::new(),
             roots: Vec::new(),
             roots_initialized: false,
@@ -376,6 +379,7 @@ impl Settings {
         self.editor_font_size = self.editor_font_size.clamp(6.0, 96.0);
         self.line_spacing = self.line_spacing.clamp(1.0, 3.0);
         self.ui_scale = self.ui_scale.clamp(0.6, 2.5);
+        self.audio_volume = if self.audio_volume.is_finite() { self.audio_volume.clamp(0.0, 1.0) } else { 0.8 };
         if self.max_text_width != 0.0 {
             self.max_text_width = self.max_text_width.clamp(400.0, 2000.0);
         }

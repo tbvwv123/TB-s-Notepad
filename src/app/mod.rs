@@ -9,7 +9,10 @@ mod files;
 mod find;
 mod images;
 mod input;
+mod media_cards;
+mod note_links;
 mod settings_ui;
+mod slash;
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -163,6 +166,8 @@ pub struct NotepadApp {
     selected_image: Option<(u64, usize)>,
     /// 지난 프레임의 커서 (그림 줄에 들어올 때 어느 쪽에서 왔는지 알려고)
     last_cursor: Option<(u64, usize)>,
+    /// 지난 프레임에 기호를 드러낸 줄: (문서 id, 줄)
+    revealed_line: Option<(u64, Option<usize>)>,
     scroll_to_cursor: bool,
     focus_editor: bool,
     focus_attempts: u8,
@@ -172,6 +177,12 @@ pub struct NotepadApp {
     allow_close: bool,
     /// 마지막으로 파일 변경을 확인한 때 (`ctx.input(|i| i.time)`)
     last_disk_check: f64,
+    /// 소리 재생기, 소리·영상 파일 정보
+    media: media_cards::MediaHub,
+    /// 메모 링크 고르기 창
+    link_picker: Option<note_links::LinkPicker>,
+    /// `/` 명령 목록
+    slash: Option<slash::SlashMenu>,
 }
 
 impl NotepadApp {
@@ -220,6 +231,7 @@ impl NotepadApp {
             pending_select: None,
             selected_image: None,
             last_cursor: None,
+            revealed_line: None,
             scroll_to_cursor: false,
             focus_editor: true,
             focus_attempts: 0,
@@ -228,6 +240,9 @@ impl NotepadApp {
             last_title: String::new(),
             allow_close: false,
             last_disk_check: 0.0,
+            media: media_cards::MediaHub::default(),
+            link_picker: None,
+            slash: None,
         };
 
         for sd in session.docs {
@@ -408,7 +423,7 @@ impl eframe::App for NotepadApp {
         let ctx = ui.ctx().clone();
         self.settings.clamp();
         self.apply_look(&ctx);
-        if self.dialog.is_none() {
+        if self.dialog.is_none() && self.link_picker.is_none() {
             self.handle_shortcuts(&ctx);
         }
         self.handle_dropped_files(&ctx);
@@ -421,6 +436,7 @@ impl eframe::App for NotepadApp {
             }
         }
         self.handle_close_request(&ctx);
+        self.media.poll(&ctx, self.settings.audio_volume);
         self.check_external_changes(&ctx);
         self.autosave(&ctx);
         self.show_conflict();
@@ -461,6 +477,7 @@ impl eframe::App for NotepadApp {
 
         self.settings_window(&ctx);
         self.dialogs(&ctx);
+        self.link_picker_ui(&ctx);
         self.drop_overlay(&ctx);
     }
 

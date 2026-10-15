@@ -1,12 +1,14 @@
-//! 그림 넣기·붙여넣기, 그림 줄 선택·크기·위치, 그림 앞/뒤 커서 처리.
+//! 그림·소리·영상 넣기·붙여넣기, 파일·폴더 링크 넣기, 그림 줄 선택·크기·위치, 그림 앞/뒤 커서 처리.
 
 use super::*;
+use crate::media;
 
 impl NotepadApp {
     /// 문서 폴더 밖의 그림이면 (설정에 따라) 문서 옆 그림 폴더로 복사해 그 복사본을 씁니다.
+    /// 소리·영상은 크기가 커서 복사하지 않고 원래 파일을 가리킵니다.
     pub(super) fn adopt_image(&self, image: &Path) -> PathBuf {
         let Some(dir) = self.doc().dir() else { return image.to_path_buf() };
-        if !self.settings.keep_images_with_doc || image.starts_with(&dir) {
+        if !self.settings.keep_images_with_doc || image.starts_with(&dir) || media::is_audio_or_video(image) {
             return image.to_path_buf();
         }
         let target_dir = dir.join(&self.settings.image_folder);
@@ -22,22 +24,38 @@ impl NotepadApp {
         }
     }
 
-    /// 문서에서 이미지 파일을 가리킬 경로 (가능하면 문서 기준 상대 경로)
-    pub(super) fn image_link(&self, image: &Path) -> String {
-        let image = &self.adopt_image(image);
-        let name = image.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    /// 링크 주소로 쓸 경로: 문서 폴더 안이면 상대 경로, 밖이면 절대 경로 (빈칸 등이 있으면 `<...>`)
+    fn link_target(&self, path: &Path) -> String {
         let target = match self.doc().dir() {
-            Some(dir) => image.strip_prefix(&dir).map(Path::to_path_buf).unwrap_or_else(|_| image.to_path_buf()),
-            None => image.to_path_buf(),
+            Some(dir) => path.strip_prefix(&dir).map(Path::to_path_buf).unwrap_or_else(|_| path.to_path_buf()),
+            None => path.to_path_buf(),
         };
         let mut s = target.to_string_lossy().replace('\\', "/");
+        if s.is_empty() {
+            s = ".".into();
+        }
         if s.contains([' ', '(', ')', '<', '>']) {
             s = format!("<{s}>");
         }
-        format!("![{name}]({s})")
+        s
     }
 
-    /// 그림은 한 줄을 다 차지하도록 앞뒤에 줄바꿈을 붙여 넣습니다.
+    /// 문서에서 그림·소리·영상 파일을 가리킬 한 줄 (가능하면 문서 기준 상대 경로)
+    pub(super) fn image_link(&self, image: &Path) -> String {
+        let image = &self.adopt_image(image);
+        let name = image.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        format!("![{name}]({})", self.link_target(image))
+    }
+
+    /// 이 PC의 파일·폴더로 가는 링크 (Ctrl+클릭하면 탐색기에서 열림)
+    pub(super) fn file_link(&self, path: &Path) -> String {
+        let name =
+            path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+        let name = name.replace(['[', ']'], "");
+        format!("[{name}]({})", self.link_target(path))
+    }
+
+    /// 그림·소리·영상은 한 줄을 다 차지하도록 앞뒤에 줄바꿈을 붙여 넣습니다.
     pub(super) fn insert_image_links(&mut self, links: Vec<String>) {
         if links.is_empty() || !self.doc().is_markdown() {
             return;
@@ -46,17 +64,73 @@ impl NotepadApp {
         self.focus_editor = true;
     }
 
+    /// 파일·폴더 링크는 커서 자리에 글처럼 넣습니다 (여러 개면 줄마다).
+    pub(super) fn insert_file_links(&mut self, links: Vec<String>) {
+        if links.is_empty() || !self.doc().is_markdown() {
+            return;
+        }
+        self.pending_action = Some(MdAction::Insert(links.join("\n")));
+        self.focus_editor = true;
+    }
+
+    /// 파일 목록을 문서에 넣습니다: 그림·소리·영상은 그 자리에 보이게, 나머지 파일·폴더는 링크로.
+    pub(super) fn insert_paths(&mut self, ctx: &egui::Context, paths: &[PathBuf]) {
+        if !self.doc().is_markdown() {
+            self.set_status(ctx, "텍스트 파일(.txt)에는 그림·소리·영상·링크를 넣을 수 없습니다");
+            return;
+        }
+        let (media, others): (Vec<&PathBuf>, Vec<&PathBuf>) = paths.iter().partition(|p| is_embeddable(p));
+        let media: Vec<String> = media.into_iter().map(|p| self.image_link(p)).collect();
+        let links: Vec<String> = others.into_iter().map(|p| self.file_link(p)).collect();
+        let msg = match (media.len(), links.len()) {
+            (0, 0) => return,
+            (m, 0) => format!("{m}개를 넣었습니다"),
+            (0, l) => format!("링크 {l}개를 넣었습니다 (Ctrl+클릭하면 탐색기에서 열림)"),
+            (m, l) => format!("{m}개와 링크 {l}개를 넣었습니다"),
+        };
+        self.set_status(ctx, msg);
+        // 둘 다 있으면 링크를 먼저 글처럼 넣고, 그림·소리·영상은 그 아래 줄로
+        let mut text = links.join("\n");
+        if !media.is_empty() {
+            text.push_str(&format!("\n{}\n", media.join("\n")));
+        }
+        self.pending_action = Some(MdAction::Insert(text));
+        self.focus_editor = true;
+    }
+
+    /// 그림·소리·영상 파일을 골라 넣습니다.
     pub(super) fn insert_image_dialog(&mut self) {
         if !self.doc().is_markdown() {
             return;
         }
-        let mut dlg = rfd::FileDialog::new().add_filter("이미지", IMAGE_EXTENSIONS);
+        let all: Vec<&str> = [IMAGE_EXTENSIONS, media::AUDIO_EXTENSIONS, media::VIDEO_EXTENSIONS].concat();
+        let mut dlg = rfd::FileDialog::new()
+            .add_filter("그림 · 소리 · 영상", &all)
+            .add_filter("그림", IMAGE_EXTENSIONS)
+            .add_filter("소리", media::AUDIO_EXTENSIONS)
+            .add_filter("영상", media::VIDEO_EXTENSIONS);
         if let Some(dir) = self.doc().dir() {
             dlg = dlg.set_directory(dir);
         }
         if let Some(paths) = dlg.pick_files() {
             let links = paths.iter().map(|p| self.image_link(p)).collect();
             self.insert_image_links(links);
+        }
+    }
+
+    /// 파일(또는 폴더)을 골라 탐색기 링크로 넣습니다.
+    pub(super) fn insert_file_link_dialog(&mut self, folder: bool) {
+        if !self.doc().is_markdown() {
+            return;
+        }
+        let mut dlg = rfd::FileDialog::new();
+        if let Some(dir) = self.doc().dir() {
+            dlg = dlg.set_directory(dir);
+        }
+        let paths = if folder { dlg.pick_folder().map(|p| vec![p]) } else { dlg.pick_files() };
+        if let Some(paths) = paths {
+            let links = paths.iter().map(|p| self.file_link(p)).collect();
+            self.insert_file_links(links);
         }
     }
 
@@ -69,15 +143,12 @@ impl NotepadApp {
         let image = match clipboard.get_image() {
             Ok(img) => img,
             Err(_) => {
-                // 탐색기에서 복사한 이미지 파일이면 그 파일을 가리키는 링크를 넣습니다.
+                // 탐색기에서 복사한 파일·폴더: 그림·소리·영상은 그대로 보이게, 나머지는 탐색기 링크로
                 let files = clipboard.get().file_list().unwrap_or_default();
-                let links: Vec<String> =
-                    files.iter().filter(|p| has_extension(p, IMAGE_EXTENSIONS)).map(|p| self.image_link(p)).collect();
-                if links.is_empty() {
+                if files.is_empty() {
                     self.set_status(ctx, "클립보드에 이미지가 없습니다");
                 } else {
-                    self.set_status(ctx, format!("이미지 {}개를 넣었습니다", links.len()));
-                    self.insert_image_links(links);
+                    self.insert_paths(ctx, &files);
                 }
                 return;
             }
@@ -205,10 +276,15 @@ impl NotepadApp {
                 }
             }
             None => {
+                let path = media::local_link_target(img.dest, doc.dir().as_deref());
                 // 줄바꿈까지 지우기
                 let end = if end < doc.text.len() { end + 1 } else { end };
                 doc.text.replace_range(line..end, "");
                 doc.mark_changed();
+                // 지운 소리가 재생 중이면 멈춤
+                if path.is_some() && self.media.player.state().map(|s| Some(s.path)) == Some(path) {
+                    self.media.player.stop();
+                }
                 self.selected_image = None;
                 self.focus_editor = true;
             }
@@ -223,6 +299,11 @@ pub(super) enum ImageAction {
     Width(usize, Option<u32>),
     Align(usize, ImgAlign),
     Delete(usize),
+}
+
+/// 문서 안에 그대로 보이는 파일 (그림·소리·영상)
+pub(super) fn is_embeddable(path: &Path) -> bool {
+    path.is_file() && (has_extension(path, IMAGE_EXTENSIONS) || media::is_audio_or_video(path))
 }
 
 /// 문서 모드에서 그림 줄들의 (시작 글자, 끝 글자, 시작 바이트)
@@ -256,7 +337,9 @@ pub(super) fn image_toolbar_ui(
     line: usize,
     align: ImgAlign,
     width: Option<u32>,
+    kind: crate::media::MediaKind,
 ) -> Option<ImageAction> {
+    let is_image = kind == crate::media::MediaKind::Image;
     let mut action = None;
     let h = 44.0;
     let pos = egui::pos2(img.left(), (img.top() - h - 6.0).max(editor_top + 6.0));
@@ -272,15 +355,12 @@ pub(super) fn image_toolbar_ui(
                         action = Some(ImageAction::Width(line, Some(pct)));
                     }
                 }
-                if ui_kit::text_button(
-                    ui,
-                    RichText::new("원래 크기").size(12.5),
-                    "그림 원래 크기 (본문 폭을 넘지 않게)",
-                    width.is_none(),
-                    base,
-                )
-                .clicked()
-                {
+                let (label, tip) = if is_image {
+                    ("원래 크기", "그림 원래 크기 (본문 폭을 넘지 않게)")
+                } else {
+                    ("기본 크기", "카드 기본 크기")
+                };
+                if ui_kit::text_button(ui, RichText::new(label).size(12.5), tip, width.is_none(), base).clicked() {
                     action = Some(ImageAction::Width(line, None));
                 }
                 ui.add_space(8.0);
@@ -294,7 +374,15 @@ pub(super) fn image_toolbar_ui(
                     }
                 }
                 ui.add_space(8.0);
-                if ui_kit::icon_button(ui, Icon::Trash, "그림 지우기 (Delete)", false, base).clicked() {
+                if ui_kit::icon_button(
+                    ui,
+                    Icon::Trash,
+                    if is_image { "그림 지우기 (Delete)" } else { "지우기 (Delete)" },
+                    false,
+                    base,
+                )
+                .clicked()
+                {
                     action = Some(ImageAction::Delete(line));
                 }
             });

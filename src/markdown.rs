@@ -117,6 +117,16 @@ pub fn highlight(text: &str, st: &HighlightStyle) -> LayoutJob {
             continue;
         }
 
+        // -# 작은 글씨: 기호는 강조색, 내용은 흐리게
+        if let Some(rest) = crate::live::subtext_body(trimmed) {
+            let marker_end = body.len() - rest.len();
+            job.append(&body[..marker_end], 0.0, st.fmt(st.accent));
+            let base = st.fmt(st.muted);
+            highlight_inline(&mut job, rest, st, &base, false);
+            job.append(nl, 0.0, base);
+            continue;
+        }
+
         // # 제목
         let hashes = trimmed.bytes().take_while(|&b| b == b'#').count();
         if (1..=6).contains(&hashes) && trimmed[hashes..].chars().next().is_none_or(|ch| ch == ' ') {
@@ -368,26 +378,48 @@ fn md_options() -> pulldown_cmark::Options {
 // ---------------------------------------------------------------------------
 // HTML 내보내기
 
-/// 크기·위치를 지정한 그림 줄을 HTML `<img>` 로 바꿔 둡니다 (마크다운에는 그런 문법이 없으므로).
-fn sized_images_to_html(text: &str) -> String {
-    use crate::live::{ImgAlign, parse_image_line};
+/// 마크다운에 없는 우리 문법을 HTML 로 바꿔 둡니다:
+/// 크기·위치를 지정한 그림 줄은 `<img>`, `-# 작은 글씨` 줄은 `<small>`.
+fn extensions_to_html(text: &str) -> String {
+    use crate::live::{ImgAlign, parse_image_line, subtext_body};
+    use crate::media::MediaKind;
     let mut out = String::with_capacity(text.len());
     for line in text.split_inclusive('\n') {
         let body = line.trim_end_matches(['\n', '\r']);
-        match parse_image_line(body.trim_start()) {
-            Some(img) if img.width.is_some() || img.align != ImgAlign::Left => {
+        let trimmed = body.trim_start();
+        if let Some(rest) = subtext_body(trimmed) {
+            // 안의 **굵게** 등은 그대로 마크다운으로 처리되고, 줄 끝 공백 두 칸으로 줄을 나눔
+            out.push_str(&format!("<small class=\"subtext\">{rest}</small>  \n"));
+            continue;
+        }
+        let kind = parse_image_line(trimmed).map(|img| crate::media::kind_of(img.dest));
+        match parse_image_line(trimmed) {
+            Some(img) if img.width.is_some() || img.align != ImgAlign::Left || kind != Some(MediaKind::Image) => {
                 let align = match img.align {
                     ImgAlign::Left => "left",
                     ImgAlign::Center => "center",
                     ImgAlign::Right => "right",
                 };
-                let width = img.width.map(|w| format!(" width=\"{w}%\"")).unwrap_or_default();
-                out.push_str(&format!(
-                    "<p style=\"text-align:{align}\"><img src=\"{}\" alt=\"{}\"{width}></p>
-",
-                    html_escape(&img.dest.replace(' ', "%20")),
-                    html_escape(img.alt)
-                ));
+                let src = html_escape(&img.dest.replace(' ', "%20"));
+                let alt = html_escape(img.alt);
+                let element = match kind {
+                    // 소리·영상은 브라우저의 기본 재생기로
+                    Some(MediaKind::Audio) => {
+                        let style = img.width.map(|w| format!(" style=\"width:{w}%\"")).unwrap_or_default();
+                        format!("<audio controls preload=\"metadata\" src=\"{src}\" title=\"{alt}\"{style}></audio>")
+                    }
+                    Some(MediaKind::Video) => {
+                        let width = img
+                            .width
+                            .map_or_else(|| " style=\"max-width:100%\"".to_owned(), |w| format!(" width=\"{w}%\""));
+                        format!("<video controls preload=\"metadata\" src=\"{src}\" title=\"{alt}\"{width}></video>")
+                    }
+                    _ => {
+                        let width = img.width.map(|w| format!(" width=\"{w}%\"")).unwrap_or_default();
+                        format!("<img src=\"{src}\" alt=\"{alt}\"{width}>")
+                    }
+                };
+                out.push_str(&format!("<p style=\"text-align:{align}\">{element}</p>\n"));
             }
             _ => out.push_str(line),
         }
@@ -396,7 +428,7 @@ fn sized_images_to_html(text: &str) -> String {
 }
 
 pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
-    let text = sized_images_to_html(text);
+    let text = extensions_to_html(text);
     let parser = pulldown_cmark::Parser::new_ext(&text, md_options());
     let mut body = String::new();
     pulldown_cmark::html::push_html(&mut body, parser);
@@ -425,6 +457,7 @@ pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
   th, td {{ border: 1px solid {muted}88; padding: 6px 12px; }}
   img {{ max-width: 100%; }}
   hr {{ border: none; border-top: 1px solid {muted}88; }}
+  small.subtext {{ color: {muted}; font-size: .82em; }}
 </style>
 </head>
 <body>
@@ -496,6 +529,12 @@ pub fn collect_images(text: &str, old_base: Option<&Path>, doc_dir: &Path, folde
                 continue;
             }
             inside.to_path_buf()
+        } else if crate::media::kind_of(dest) != crate::media::MediaKind::Image {
+            // 소리·영상은 커서 복사하지 않습니다. 상대 경로였으면 문서를 옮겨도 찾을 수 있게 절대 경로로.
+            if p.is_absolute() || old_base == Some(doc_dir) {
+                continue;
+            }
+            abs.clone()
         } else {
             if !abs.is_file() {
                 continue;
@@ -551,6 +590,8 @@ pub enum MdAction {
     Numbered,
     Task,
     Quote,
+    /// `-# ` 작은 글씨
+    Subtext,
     CodeBlock,
     Table,
     Rule,
@@ -594,6 +635,7 @@ pub fn apply_action(text: &mut String, sel: Range<usize>, action: &MdAction) -> 
         MdAction::Bullet => toggle_prefix(text, start, end, "- "),
         MdAction::Task => toggle_prefix(text, start, end, "- [ ] "),
         MdAction::Quote => toggle_prefix(text, start, end, "> "),
+        MdAction::Subtext => toggle_prefix(text, start, end, "-# "),
         MdAction::Numbered => {
             let lines = line_span(text, start, end);
             let all_numbered = text[lines].split('\n').all(|l| numbered_prefix_len(l).is_some());
@@ -767,6 +809,38 @@ mod tests {
     }
 
     #[test]
+    fn media_lines_export_as_players() {
+        let html = to_html(
+            "![노래](<media/a b.mp3>)\n\n![영상](v.mp4 \"width=50% align=center\")\n",
+            "t",
+            &crate::settings::Settings::default().palette(),
+        );
+        assert!(html.contains("<audio controls preload=\"metadata\" src=\"media/a%20b.mp3\""), "{html}");
+        assert!(html.contains("<p style=\"text-align:center\"><video controls"), "{html}");
+        assert!(html.contains("width=\"50%\"></video>"), "{html}");
+        assert!(!html.contains("<img"), "{html}");
+    }
+
+    #[test]
+    fn collect_leaves_media_files_alone() {
+        let root = std::env::temp_dir().join(format!("tbn_media_collect_{}", std::process::id()));
+        let (old, new) = (root.join("old"), root.join("new"));
+        std::fs::create_dir_all(old.join("media")).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("media").join("song.mp3"), b"x").unwrap();
+        let text = "![노래](media/song.mp3)\n";
+        // 같은 폴더면 그대로
+        assert_eq!(collect_images(text, Some(&old), &old, "images"), None);
+        // 다른 폴더로 옮기면 복사하지 않고 원래 파일을 절대 경로로 가리킴
+        let out = collect_images(text, Some(&old), &new, "images").unwrap();
+        assert!(out.contains("song.mp3"), "{out}");
+        assert!(!new.join("images").exists(), "소리 파일을 복사하면 안 됨");
+        let dest = crate::live::parse_image_line(out.trim()).unwrap().dest.to_owned();
+        assert!(Path::new(&dest).is_absolute(), "{dest}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn collects_outside_images_into_doc_folder() {
         let tmp = std::env::temp_dir().join(format!("tbn_collect_{}", std::process::id()));
         let outside = tmp.join("outside");
@@ -790,6 +864,17 @@ mod tests {
         assert!(moved.contains("<images/my pic.png>"));
         assert!(new_dir.join("images/my pic.png").is_file());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn subtext_toggles_and_exports() {
+        let mut t = "참고\n둘째".to_owned();
+        apply_action(&mut t, 0..4, &MdAction::Subtext);
+        assert_eq!(t, "-# 참고\n-# 둘째");
+        apply_action(&mut t, 0..10, &MdAction::Subtext);
+        assert_eq!(t, "참고\n둘째");
+        let html = to_html("본문\n\n-# **작은** 글씨\n", "t", &crate::settings::Settings::default().palette());
+        assert!(html.contains(r#"<small class="subtext"><strong>작은</strong> 글씨</small>"#), "{html}");
     }
 
     #[test]

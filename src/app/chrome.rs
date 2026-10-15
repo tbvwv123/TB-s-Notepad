@@ -57,8 +57,20 @@ impl NotepadApp {
                 let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
                 self.pending_action = Some(MdAction::Insert(now));
             }
-            if item(ui, "그림 파일 넣기…", "") {
+            if item(ui, "그림 · 소리 · 영상 넣기…", "") {
                 self.insert_image_dialog();
+            }
+            if item(ui, "메모 링크 넣기…", "Ctrl+Shift+K") {
+                self.open_link_picker();
+            }
+            if item(ui, "이 줄 링크 복사", "Ctrl+Shift+L") {
+                self.copy_line_link(&ctx);
+            }
+            if item(ui, "파일 링크 넣기…", "") {
+                self.insert_file_link_dialog(false);
+            }
+            if item(ui, "폴더 링크 넣기…", "") {
+                self.insert_file_link_dialog(true);
             }
             if item(ui, "클립보드 그림 붙여넣기", "Ctrl+V") {
                 self.paste_clipboard_image(&ctx);
@@ -90,6 +102,7 @@ impl NotepadApp {
                     ("번호 목록", MdAction::Numbered),
                     ("할 일 목록", MdAction::Task),
                     ("인용", MdAction::Quote),
+                    ("작은 글씨  -#", MdAction::Subtext),
                     ("코드 블록", MdAction::CodeBlock),
                     ("표", MdAction::Table),
                     ("구분선", MdAction::Rule),
@@ -317,13 +330,24 @@ impl NotepadApp {
             if ui_kit::icon_button(
                 ui,
                 Icon::Image,
-                "그림 넣기\n복사한 그림은 Ctrl+V, 파일은 창에 끌어다 놓아도 됩니다",
+                "그림 · 소리 · 영상 넣기\n복사한 그림은 Ctrl+V, 파일은 창에 끌어다 놓아도 됩니다",
                 false,
                 base,
             )
             .clicked()
             {
                 self.insert_image_dialog();
+            }
+            if ui_kit::icon_button(
+                ui,
+                Icon::Folder,
+                "파일 링크 넣기\nCtrl+클릭하면 탐색기에서 그 파일이 열립니다",
+                false,
+                base,
+            )
+            .clicked()
+            {
+                self.insert_file_link_dialog(false);
             }
         });
         if action.is_some() {

@@ -16,6 +16,12 @@ impl NotepadApp {
         if sc(cmd_shift, Key::I) {
             self.paste_clipboard_image(ctx);
         }
+        if sc(cmd_shift, Key::K) {
+            self.open_link_picker();
+        }
+        if sc(cmd_shift, Key::L) {
+            self.copy_line_link(ctx);
+        }
         for (k, lvl) in [(Key::Num1, 1), (Key::Num2, 2), (Key::Num3, 3)] {
             if sc(cmd_alt, k) {
                 self.pending_action = Some(MdAction::Heading(lvl));
@@ -108,27 +114,28 @@ impl NotepadApp {
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect()
         });
-        let mut images = Vec::new();
+        // 그림·소리·영상은 문서에 넣고, 메모로 열 수 없는 파일(pdf, zip …)은 탐색기 링크로 넣습니다.
+        let mut insert = Vec::new();
         for path in dropped {
             if path.is_dir() {
-                // 폴더를 끌어다 놓으면 메모 폴더로 추가
-                if !self.settings.roots.contains(&path) {
+                // 폴더를 끌어다 놓으면 메모 폴더로 추가 (Shift 를 누르고 놓으면 폴더 링크)
+                if ctx.input(|i| i.modifiers.shift) {
+                    insert.push(path);
+                } else if !self.settings.roots.contains(&path) {
                     self.settings.roots.push(path);
                     self.sidebar.invalidate();
                 }
                 continue;
             }
-            if has_extension(&path, IMAGE_EXTENSIONS) {
-                if !self.doc().is_markdown() {
-                    self.set_status(ctx, "텍스트 파일(.txt)에는 그림을 넣을 수 없습니다");
-                    continue;
-                }
-                images.push(self.image_link(&path));
+            if is_embeddable(&path) || !has_extension(&path, TEXT_EXTENSIONS) {
+                insert.push(path);
             } else {
                 self.open_path(&path);
             }
         }
-        self.insert_image_links(images);
+        if !insert.is_empty() {
+            self.insert_paths(ctx, &insert);
+        }
     }
 
     pub(super) fn handle_close_request(&mut self, ctx: &egui::Context) {

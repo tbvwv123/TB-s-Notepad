@@ -11,6 +11,8 @@ use std::path::Path;
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontFamily, FontId, Stroke, Vec2};
 
+use crate::media::MediaKind;
+
 /// 글자 위치는 모두 "글자 단위" 인덱스 (TextEdit 커서와 같은 단위)
 #[derive(Clone, Debug, PartialEq)]
 pub enum Deco {
@@ -22,10 +24,12 @@ pub enum Deco {
     Quote { start: usize, end: usize },
     /// `---` 구분선
     Rule { at: usize },
-    /// 그림만 있는 줄. `top`은 줄 맨 위에서 그림까지의 간격,
+    /// 그림·소리·영상만 있는 줄. `top`은 줄 맨 위에서 그림까지의 간격,
     /// `line`은 원문에서 이 줄의 바이트 범위, `max_w`는 배치할 때 쓴 최대 너비 (크기 조절용)
     /// `at`..`end` 는 이 줄의 글자 범위 (커서는 그림 앞 `at` 이나 뒤 `end` 에만 섭니다).
+    /// 소리·영상(`kind`)은 그림 대신 재생 카드를 그립니다.
     Image {
+        kind: MediaKind,
         at: usize,
         end: usize,
         uri: String,
@@ -87,6 +91,20 @@ pub struct LiveInput<'a> {
 }
 
 const MAX_LIVE_BYTES: usize = 1_000_000;
+
+/// 소리 카드 높이
+pub const AUDIO_CARD_HEIGHT: f32 = 58.0;
+
+/// `-#` 작은 글씨의 크기 (본문 대비)
+const SUBTEXT_SCALE: f32 = 0.8;
+
+/// 줄이 `-# 작은 글씨` 면 기호 뒤의 내용 (디스코드의 subtext 문법)
+pub fn subtext_body(trimmed: &str) -> Option<&str> {
+    if trimmed == "-#" {
+        return Some("");
+    }
+    trimmed.strip_prefix("-# ")
+}
 
 struct Builder<'a> {
     job: LayoutJob,
@@ -176,18 +194,29 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
             continue;
         }
 
-        // 그림만 있는 줄: 경로 글자는 커서가 있어도 숨기고 그림만 보여 줍니다
+        // 그림·소리·영상만 있는 줄: 경로 글자는 커서가 있어도 숨기고 그림(카드)만 보여 줍니다
         // (크기·위치·삭제는 그림을 눌러서 나오는 도구로).
         if let Some(img) = parse_image_line(trimmed) {
             let uri = resolve_uri(img.dest, input.base_dir);
-            image_uris.push(uri.clone());
-            if let Some(nat) = (input.image_size)(&uri).filter(|s| s.x > 0.0 && s.y > 0.0) {
-                let max_w = input.max_image_width.max(40.0);
-                let w = match img.width {
-                    Some(pct) => max_w * pct as f32 / 100.0,
-                    None => nat.x.min(max_w),
-                };
-                let size = Vec2::new(w, nat.y * w / nat.x);
+            let kind = crate::media::kind_of(img.dest);
+            let max_w = input.max_image_width.max(40.0);
+            let pct_w = img.width.map(|pct| max_w * pct as f32 / 100.0);
+            let size = match kind {
+                MediaKind::Image => {
+                    image_uris.push(uri.clone());
+                    (input.image_size)(&uri).filter(|s| s.x > 0.0 && s.y > 0.0).map(|nat| {
+                        let w = pct_w.unwrap_or(nat.x.min(max_w));
+                        Vec2::new(w, nat.y * w / nat.x)
+                    })
+                }
+                // 소리 카드는 너무 좁으면 재생 막대가 안 보여서 최소 폭을 둡니다
+                MediaKind::Audio => Some(Vec2::new(pct_w.unwrap_or(440.0).max(300.0).min(max_w), AUDIO_CARD_HEIGHT)),
+                MediaKind::Video => {
+                    let w = pct_w.unwrap_or(480.0).max(160.0).min(max_w);
+                    Some(Vec2::new(w, w * 9.0 / 16.0))
+                }
+            };
+            if let Some(size) = size {
                 let top = 6.0;
                 let mut f = b.hidden();
                 f.line_height = Some(top + size.y + 10.0);
@@ -195,9 +224,33 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
                 b.push(nl, f);
                 let line = line_start_byte..line_start_byte + body.len();
                 let end = line_start_char + body.chars().count();
-                b.decos.push(Deco::Image { at: line_start_char, end, uri, size, top, align: img.align, line, max_w });
+                b.decos.push(Deco::Image {
+                    kind,
+                    at: line_start_char,
+                    end,
+                    uri,
+                    size,
+                    top,
+                    align: img.align,
+                    line,
+                    max_w,
+                });
                 continue;
             }
+        }
+
+        // -# 작은 글씨 (디스코드식 보조 글): 기호는 숨기고 작고 흐리게
+        if let Some(rest) = subtext_body(trimmed) {
+            let marker_end = body.len() - rest.len();
+            let mut mf = b.marker(active);
+            if active {
+                mf.font_id.size = st.size * SUBTEXT_SCALE;
+            }
+            b.push(&body[..marker_end], mf);
+            let sf = b.fmt(&st.body, SUBTEXT_SCALE, st.muted);
+            inline(&mut b, rest, &sf, active);
+            b.push(nl, sf);
+            continue;
         }
 
         // # 제목
@@ -617,6 +670,19 @@ mod tests {
     }
 
     #[test]
+    fn subtext_lines() {
+        assert_eq!(subtext_body("-# 작은 글씨"), Some("작은 글씨"));
+        assert_eq!(subtext_body("-#"), Some(""));
+        assert_eq!(subtext_body("-#붙은 글"), None);
+        assert_eq!(subtext_body("- # 목록"), None);
+        // 기호를 숨겨도 글자는 그대로
+        let src = "-# **작은** 글씨";
+        for active in [None, Some(0)] {
+            assert_eq!(run(src, active, None).job.text, src);
+        }
+    }
+
+    #[test]
     fn parses_image_lines() {
         let p = parse_image_line("![a](b.png)").unwrap();
         assert_eq!((p.dest, p.alt, p.width, p.align), ("b.png", "a", None, ImgAlign::Left));
@@ -634,6 +700,33 @@ mod tests {
         let p = parse_image_line(&line).unwrap();
         assert_eq!((p.alt, p.dest, p.width, p.align), ("고양이", "my cat.png", Some(55), ImgAlign::Right));
         assert_eq!(format_image_line("a", "b.png", None, ImgAlign::Left), "![a](b.png)");
+    }
+
+    #[test]
+    fn media_lines_become_cards_without_loading() {
+        // 그림 크기를 몰라도(불러오지 않아도) 소리·영상 카드는 바로 자리를 잡습니다
+        let text = "앞
+![노래](media/song.mp3)
+![영상](<media/my clip.mp4> \"width=50%\")
+뒤";
+        let out = run(text, None, None);
+        assert_eq!(out.job.text, text);
+        assert!(out.image_uris.is_empty(), "소리·영상은 그림으로 불러오지 않음");
+        let kinds: Vec<_> = out
+            .decos
+            .iter()
+            .filter_map(|d| match d {
+                Deco::Image { kind, size, at, end, .. } => Some((*kind, *size, *at, *end)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(kinds.len(), 2, "{:?}", out.decos);
+        assert_eq!(kinds[0].0, MediaKind::Audio);
+        assert_eq!(kinds[0].1.y, AUDIO_CARD_HEIGHT);
+        assert_eq!(kinds[0].2, 2);
+        assert_eq!(kinds[0].3, 2 + "![노래](media/song.mp3)".chars().count());
+        assert_eq!(kinds[1].0, MediaKind::Video);
+        assert_eq!(kinds[1].1, Vec2::new(250.0, 250.0 * 9.0 / 16.0));
     }
 
     #[test]

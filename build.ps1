@@ -18,9 +18,11 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $target = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).target_directory
 New-Item -ItemType Directory -Force "dist" | Out-Null
 $exe = "dist\TB-Notepad.exe"
+# 지난번에 비켜 둔 실행 파일은 (이제 꺼졌으면) 지웁니다. 아직 켜져 있는 것(MCP 서버 등)은 그대로 둡니다.
+Get-ChildItem "dist" -Filter "TB-Notepad.old*.exe" -ErrorAction SilentlyContinue |
+    ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
 $old = "dist\TB-Notepad.old.exe"
-# 지난번에 비켜 둔 실행 파일은 (이제 꺼졌으면) 지웁니다.
-Remove-Item $old -Force -ErrorAction SilentlyContinue
+if (Test-Path $old) { $old = "dist\TB-Notepad.old-{0}.exe" -f (Get-Date -Format "yyyyMMdd-HHmmss") }
 # 앱이 켜져 있으면 실행 파일이 잠겨 덮어쓸 수 없지만, 이름 바꾸기는 됩니다.
 # 켜진 앱은 그대로 두고 새 파일을 넣습니다 (다음에 앱을 다시 켜면 새 버전).
 $running = $false

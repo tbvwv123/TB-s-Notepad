@@ -48,6 +48,13 @@ impl NotepadApp {
             ctx.memory_mut(|m| m.request_focus(id));
         }
         self.apply_pending_edits(&ctx, id);
+        // 복사해 둔 메모 링크를 붙여넣으면 이 메모 기준 상대 경로로
+        if ctx.memory(|m| m.has_focus(id)) {
+            self.relativize_paste(&ctx);
+        }
+        // / 명령 목록이 열려 있으면 ↑↓ · Enter · Esc 는 목록이 받음
+        let slash_key = if ctx.memory(|m| m.has_focus(id)) { self.slash_keys(&ctx, id) } else { None };
+        let typed_slash = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('/'))));
 
         let find_matches = if self.find.open && !self.find.query.is_empty() {
             self.refresh_matches();
@@ -59,14 +66,22 @@ impl NotepadApp {
 
         // 문서 모드: 기호를 드러낼 줄(커서 줄)과 그림 불러오기 상태
         let has_focus = ctx.memory(|m| m.has_focus(id));
-        let active_line = if doc_mode && has_focus { self.cursor_line(&ctx, id) } else { None };
+        // Ctrl 을 누르고 있는 동안은 기호를 드러낼 줄을 바꾸지 않습니다:
+        // Ctrl+클릭으로 커서가 링크 줄로 옮겨 가며 기호가 드러나면 링크 자리가 밀려 클릭이 빗나가기 때문.
+        let doc_id = self.docs[self.active].id;
+        let frozen = self.revealed_line.filter(|(d, _)| *d == doc_id).map(|(_, l)| l);
+        let active_line = match frozen {
+            Some(l) if ctx.input(|i| i.modifiers.command) => l,
+            _ if doc_mode && has_focus => self.cursor_line(&ctx, id),
+            _ => None,
+        };
+        self.revealed_line = Some((doc_id, active_line));
         let image_state = self.image_load_state(&ctx);
 
         // 그림 줄은 한 덩어리: 커서는 그림 앞/뒤에만, 그 자리에서 입력하면 새 줄을 만들어 그림 문법이 깨지지 않게
         let spans = image_spans(&self.docs[self.active]);
         let hide_caret = doc_mode && has_focus && self.guard_image_edges(&ctx, id, &spans);
 
-        let doc_id = self.docs[self.active].id;
         let last_cursor = self.last_cursor.filter(|(d, _)| *d == doc_id).map(|(_, c)| c);
         let selected_img = self.selected_image.filter(|(d, _)| *d == doc_id).map(|(_, l)| l);
 
@@ -92,6 +107,8 @@ impl NotepadApp {
         let mut decorations = decorations::DecoOutput::default();
         // 편집 영역(스크롤되는 본문)의 맨 위: 그림 도구 막대가 서식 도구와 겹치지 않게
         let mut editor_top = f32::NEG_INFINITY;
+        // 화면에서 커서 자리 (/ 명령 목록을 그 아래에 띄움)
+        let mut caret_rect = None;
 
         let scroll = if wrap { ScrollArea::vertical() } else { ScrollArea::both() };
         scroll.id_salt(("editor_scroll", doc.id)).auto_shrink([false, false]).show(ui, |ui| {
@@ -167,6 +184,7 @@ impl NotepadApp {
                         text: text_color,
                         muted: c(palette.muted),
                         accent,
+                        media: &self.media,
                     };
                     decorations = paint_decorations(ui, &view, decos);
                 }
@@ -200,6 +218,7 @@ impl NotepadApp {
                 if let Some(range) = cursor_range {
                     new_cursor = Some(range.primary.index.0);
                     let rect = pos(range.primary.index.0);
+                    caret_rect = Some(rect);
                     // 그림 앞/뒤에 있는 커서는 그림 높이만큼 세로선으로
                     if doc_mode && editor_focused && range.is_empty() {
                         let p = range.primary.index.0;
@@ -254,11 +273,13 @@ impl NotepadApp {
             });
         });
 
+        self.slash_menu(&ctx, id, typed_slash, caret_rect, editor_focused, slash_key);
+
         // 그림 도구 막대 (선택한 그림 위에 떠 있음)
         let mut image_action = decorations.image_action;
-        if let Some((r, line, align)) = decorations.image_toolbar {
+        if let Some((r, line, align, kind)) = decorations.image_toolbar {
             let current = image_line_at(&self.docs[self.active].text, line).and_then(|(_, w, _)| w);
-            if let Some(a) = image_toolbar_ui(&ctx, r, editor_top, line, align, current) {
+            if let Some(a) = image_toolbar_ui(&ctx, r, editor_top, line, align, current, kind) {
                 image_action = Some(a);
             }
         }
@@ -273,6 +294,15 @@ impl NotepadApp {
             None => {}
         }
 
+        for path in decorations.media_requests {
+            self.media.request(&ctx, path);
+        }
+        if let Some(a) = decorations.media_action {
+            self.apply_media_action(&ctx, a);
+        }
+        if let Some(url) = decorations.follow_link {
+            self.follow_link(&ctx, &url);
+        }
         if let Some((byte, checked)) = decorations.toggle_task {
             let doc = &mut self.docs[self.active];
             if matches!(doc.text.as_bytes().get(byte), Some(b' ' | b'x' | b'X')) {

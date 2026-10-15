@@ -32,9 +32,13 @@ serde_json = "1"
 ron = "0.12"
 # egui가 쓰는 것과 같은 글꼴 파서 (한글/영문 기준선 맞춤 계산용, 추가 용량 없음)
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
+# 소리 파일 재생 (mp3, wav, flac, ogg, m4a). 순수 Rust 디코더(symphonia)
+rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis", "mp4"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
+# 동영상 첫 장면 미리보기 (Windows 셸 썸네일). accesskit 이 이미 쓰는 버전이라 새로 받는 것은 없음
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # Ctrl+V 이미지 붙여넣기 (창 서브클래싱) — 이미 eframe/winit이 쓰는 버전들
 raw-window-handle = "0.6"
 windows-sys = { version = "0.61", features = [
