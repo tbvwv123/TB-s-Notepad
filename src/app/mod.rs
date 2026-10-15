@@ -4,6 +4,7 @@
 mod chrome;
 mod decorations;
 mod dialogs;
+mod edit_menu;
 mod editor;
 mod files;
 mod find;
@@ -28,6 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::{DiskEvent, DiskStamp, Document, LineEnding, TextEncoding, remap_char_index};
 use crate::fonts::{FontLibrary, bold_family, doc_family, editor_family};
+use crate::i18n::Lang;
 use crate::live::{self, Deco, ImgAlign, LiveStyle};
 use crate::markdown::{self, HighlightStyle, MdAction};
 use crate::settings::{Palette, Settings, ThemePreset, ViewMode, c, mix};
@@ -81,6 +83,7 @@ struct Look {
     doc_font: Option<String>,
     ui_scale: f32,
     always_on_top: bool,
+    lang: Lang,
 }
 
 enum Dialog {
@@ -136,11 +139,11 @@ impl SettingsPage {
 
     fn label(self) -> &'static str {
         match self {
-            SettingsPage::Theme => "테마와 색",
-            SettingsPage::Font => "글꼴",
-            SettingsPage::Editor => "편집기",
-            SettingsPage::Keys => "단축키",
-            SettingsPage::About => "정보",
+            SettingsPage::Theme => t!("테마와 색"),
+            SettingsPage::Font => t!("글꼴"),
+            SettingsPage::Editor => t!("편집기"),
+            SettingsPage::Keys => t!("단축키"),
+            SettingsPage::About => t!("정보"),
         }
     }
 }
@@ -183,6 +186,8 @@ pub struct NotepadApp {
     link_picker: Option<note_links::LinkPicker>,
     /// `/` 명령 목록
     slash: Option<slash::SlashMenu>,
+    /// 오른쪽 클릭 메뉴를 열 때의 선택: (문서 id, 글자 범위)
+    menu_sel: Option<(u64, Range<usize>)>,
 }
 
 impl NotepadApp {
@@ -192,6 +197,8 @@ impl NotepadApp {
 
         let mut settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, "settings")).unwrap_or_default();
         settings.clamp();
+        // 시작 메모를 그 언어로 쓰도록 먼저 정함
+        crate::i18n::set_lang(settings.language.unwrap_or_else(Lang::system));
         let session: Session = if settings.restore_session {
             cc.storage.and_then(|s| eframe::get_value(s, "session")).unwrap_or_default()
         } else {
@@ -204,7 +211,7 @@ impl NotepadApp {
             settings.roots_initialized = true;
             let dir = sidebar::default_notes_dir();
             if std::fs::create_dir_all(&dir).is_ok() {
-                let file = dir.join("시작하기.md");
+                let file = dir.join(t!("시작하기.md"));
                 if !file.exists() && write_welcome_note(&dir).is_ok() {
                     welcome = Some(file);
                 }
@@ -243,6 +250,7 @@ impl NotepadApp {
             media: media_cards::MediaHub::default(),
             link_picker: None,
             slash: None,
+            menu_sel: None,
         };
 
         for sd in session.docs {
@@ -306,8 +314,16 @@ impl NotepadApp {
         self.settings.roots.iter().any(|r| path.starts_with(r))
     }
 
+    /// 지금 화면 언어 (설정이 "자동"이면 Windows 언어)
+    fn ui_lang(&self) -> Lang {
+        self.settings.language.unwrap_or_else(Lang::system)
+    }
+
     fn apply_look(&mut self, ctx: &egui::Context) {
+        let lang = self.ui_lang();
+        crate::i18n::set_lang(lang);
         let look = Look {
+            lang,
             palette: self.settings.palette(),
             editor_font: self.settings.editor_font.clone(),
             ui_font: self.settings.ui_font.clone(),
@@ -320,13 +336,17 @@ impl NotepadApp {
         }
         let prev = self.applied.replace(look.clone());
         let fonts_changed = prev.as_ref().is_none_or(|p| {
-            p.editor_font != look.editor_font || p.ui_font != look.ui_font || p.doc_font != look.doc_font
+            p.editor_font != look.editor_font
+                || p.ui_font != look.ui_font
+                || p.doc_font != look.doc_font
+                || p.lang != look.lang
         });
         if fonts_changed {
             ctx.set_fonts(self.fonts.definitions(
                 look.editor_font.as_deref(),
                 look.ui_font.as_deref(),
                 look.doc_font.as_deref(),
+                look.lang,
             ));
         }
         look.palette.apply(ctx);
@@ -387,7 +407,7 @@ impl NotepadApp {
         painter.text(
             rect.center(),
             Align2::CENTER_CENTER,
-            "여기에 놓으세요\n문서는 열고, 그림은 문서에 넣고, 폴더는 사이드바에 추가합니다",
+            t!("여기에 놓으세요\n문서는 열고, 그림은 문서에 넣고, 폴더는 사이드바에 추가합니다"),
             FontId::proportional(20.0),
             Color32::WHITE,
         );

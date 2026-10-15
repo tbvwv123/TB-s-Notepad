@@ -1,6 +1,11 @@
 // 릴리스 빌드에서는 콘솔 창을 띄우지 않습니다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// t!() / tf!() 번역 매크로를 아래 모든 모듈에서 쓰도록 맨 앞에
+#[macro_use]
+mod i18n;
+mod i18n_table;
+
 mod app;
 mod document;
 mod fonts;

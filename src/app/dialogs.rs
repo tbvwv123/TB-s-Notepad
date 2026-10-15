@@ -15,40 +15,41 @@ impl NotepadApp {
             ui.set_width(360.0);
             let (title, body, primary, discard): (&str, String, &str, Option<&str>) = match dialog {
                 Dialog::CloseDoc(_) => (
-                    "저장할까요?",
-                    "이 문서의 변경 내용이 아직 파일로 저장되지 않았습니다.".into(),
-                    "저장",
-                    Some("저장 안 함"),
+                    t!("저장할까요?"),
+                    t!("이 문서의 변경 내용이 아직 파일로 저장되지 않았습니다.").into(),
+                    t!("저장"),
+                    Some(t!("저장 안 함")),
                 ),
                 Dialog::Exit => (
-                    "저장할까요?",
-                    "저장하지 않은 문서가 있습니다. 끝내기 전에 저장할까요?".into(),
-                    "모두 저장",
-                    Some("저장 안 함"),
+                    t!("저장할까요?"),
+                    t!("저장하지 않은 문서가 있습니다. 끝내기 전에 저장할까요?").into(),
+                    t!("모두 저장"),
+                    Some(t!("저장 안 함")),
                 ),
-                Dialog::Message(m) => ("알림", m.clone(), "확인", None),
+                Dialog::Message(m) => (t!("알림"), m.clone(), t!("확인"), None),
                 Dialog::ConfirmDelete(p) => (
-                    "휴지통으로 옮길까요?",
-                    format!(
+                    t!("휴지통으로 옮길까요?"),
+                    tf!(
                         "{}\n\n휴지통에서 다시 꺼낼 수 있습니다.",
                         p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
                     ),
-                    "휴지통으로",
+                    t!("휴지통으로"),
                     None,
                 ),
-                Dialog::NewFolder { .. } => ("새 폴더", String::new(), "만들기", None),
+                Dialog::NewFolder { .. } => (t!("새 폴더"), String::new(), t!("만들기"), None),
                 Dialog::ExternalChange(id) => {
                     let name = self.docs.iter().find(|d| d.id == *id).map(doc_display_title).unwrap_or_default();
                     (
-                        "파일이 밖에서 바뀌었습니다",
-                        format!(
-                            "{name}\n\n다른 프로그램(AI 도구, 동기화, 다른 편집기 등)이 이 파일을 고쳤는데, \
+                        t!("파일이 밖에서 바뀌었습니다"),
+                        tf!(
+                            "{}\n\n다른 프로그램(AI 도구, 동기화, 다른 편집기 등)이 이 파일을 고쳤는데, \
                              앱에서 고친 내용도 아직 저장되지 않았습니다. 고를 때까지 자동 저장을 멈춥니다.\n\n\
                              · 다시 불러오기: 파일의 새 내용을 엽니다 (앱에서 고친 내용은 사라집니다)\n\
-                             · 내 내용 유지: 앱의 내용으로 파일을 덮어씁니다"
+                             · 내 내용 유지: 앱의 내용으로 파일을 덮어씁니다",
+                            name
                         ),
-                        "다시 불러오기",
-                        Some("내 내용 유지"),
+                        t!("다시 불러오기"),
+                        Some(t!("내 내용 유지")),
                     )
                 }
             };
@@ -78,7 +79,8 @@ impl NotepadApp {
                 {
                     choice = Some(Choice::Discard);
                 }
-                if !matches!(dialog, Dialog::Message(_) | Dialog::ExternalChange(_)) && ui.button("취소").clicked() {
+                if !matches!(dialog, Dialog::Message(_) | Dialog::ExternalChange(_)) && ui.button(t!("취소")).clicked()
+                {
                     choice = Some(Choice::Cancel);
                 }
             });
@@ -114,7 +116,7 @@ impl NotepadApp {
                     let old_text = self.docs[i].text.clone();
                     match self.docs[i].reload() {
                         Ok(()) => self.after_reload(ctx, i, &old_text),
-                        Err(err) => self.dialog = Some(Dialog::Message(format!("다시 불러오지 못했습니다.\n\n{err}"))),
+                        Err(err) => self.dialog = Some(Dialog::Message(tf!("다시 불러오지 못했습니다.\n\n{}", err))),
                     }
                 }
             }
@@ -130,7 +132,7 @@ impl NotepadApp {
                 if !clean.is_empty() {
                     let dir = parent.join(clean);
                     if let Err(err) = std::fs::create_dir(&dir) {
-                        self.dialog = Some(Dialog::Message(format!("폴더를 만들지 못했습니다.\n{err}")));
+                        self.dialog = Some(Dialog::Message(tf!("폴더를 만들지 못했습니다.\n{}", err)));
                     }
                     self.sidebar.invalidate();
                 }

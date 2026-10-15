@@ -1,200 +1,199 @@
-<img src="assets/logo.png" width="96" alt="TB's Notepad 로고">
+<div align="center">
+
+**English** · [한국어](README.ko.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
+
+<img src="assets/logo.png" width="104" alt="TB's Notepad logo">
 
 # TB's Notepad
 
-Rust + [egui](https://github.com/emilk/egui)로 만든 **가볍고 쉬운 메모장**입니다.
-쓰는 대로 바로 서식이 보이는 문서 화면에, 폴더별로 메모를 정리하는 사이드바가 붙어 있습니다.
-설치 없이 실행 파일 하나(약 11MB)로 동작합니다.
+**A light, easy markdown notepad for Windows — formatting shows up as you type**
 
-## 실행
+[![Download](https://img.shields.io/badge/Download-Windows%20exe-e8332d?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/tbvwv123/TB-s-Notepad/releases/latest)
 
-- 바로 실행: `dist\TB-Notepad.exe`
-- 처음 실행하면 `문서\TB Notes` 폴더를 만들고 `시작하기` 메모를 엽니다.
-- 파일과 함께 열기: `TB-Notepad.exe 메모.md` (탐색기의 "연결 프로그램"으로 지정해도 됩니다)
-- AI가 메모를 읽고 쓰게 하기: `TB-Notepad.exe --mcp` ([AI와 함께 쓰기](#ai와-함께-쓰기-mcp) 참고)
+![Windows 10 · 11](https://img.shields.io/badge/Windows%2010%20%C2%B7%2011-0078D4?style=flat-square&logo=windows&logoColor=white)
+![No install](https://img.shields.io/badge/No%20install-single%20exe-444?style=flat-square)
+![No login](https://img.shields.io/badge/No%20login-offline-444?style=flat-square)
+![Rust](https://img.shields.io/badge/Rust-egui-B7410E?style=flat-square&logo=rust&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f?style=flat-square)](LICENSE)
 
-## 화면
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/en/dark.png">
+  <img src="docs/images/en/hero-light.png" alt="TB's Notepad: a folder tree in the sidebar and a note whose headings, to-dos, table and image are shown formatted">
+</picture>
 
-- **왼쪽 사이드바**: 검색, 새 메모, 폴더 추가, 그리고 폴더 › 하위 폴더 › 메모 트리.
-  폴더 옆 `+`로 그 폴더에 새 메모, 오른쪽 클릭으로 새 폴더 · 이름 바꾸기 · 탐색기에서 보기 · 휴지통으로 옮기기.
-  폴더 밖에서 연 파일이나 저장하지 않은 새 문서는 "열린 문서"에 보입니다.
-- **본문 (문서 모드)**: 제목은 크고 굵게, `**굵게**`는 실제 굵은 글씨로, 목록은 점, `- [ ]`는 누를 수 있는 체크박스,
-  인용은 왼쪽 막대, `---`는 구분선, 표는 칸과 선으로(누르면 원문으로 고치기), 그림만 있는 줄은 그림으로, 소리·영상 파일만 있는 줄은 재생 카드로 바로 보입니다.
-  `#`, `**` 같은 기호는 커서가 있는 줄에서만 흐리게 드러납니다 (Typora 방식). 링크는 Ctrl+클릭으로 엽니다.
-- **원본 보기**: 상단의 `</>` 버튼이나 Ctrl+E로 마크다운 기호를 그대로 보며 편집 (줄 번호, 문법 강조).
-- **상단**: 폴더 경로 › 메모 이름, 찾기, 원본 보기, 밝게/어둡게, 설정, ⋯ 메뉴
-- **서식 도구**: 굵게 · 기울임 · 취소선 · 코드 · 제목 1~3 · 목록 · 할 일 · 인용 · 코드 블록 · 표 · 구분선 · 링크 · 그림/소리/영상 · 파일 링크
-- **상태 표시줄**: 줄·열, 글자 수, 저장 상태, 인코딩, 줄 끝, 확대 비율
+</div>
 
-## 기능
+## Why TB's Notepad?
 
-| 분류 | 내용 |
+- **What you see is what you write** — type `# Heading`, `**bold**` or `- [ ] to-do` and the symbols disappear into a real heading, bold text or checkbox. Symbols only show, faintly, on the line with the cursor.
+- **Organized in folders** — folders › subfolders › notes in the sidebar. It saves as soon as you stop typing, and the first line becomes the file name.
+- **Just `.md` files** — your notes are plain markdown files in folders on your PC. Use them with other editors, cloud-synced folders or Git as they are.
+- **Light and quiet** — no installer, no login, a single exe (about 13 MB). It never connects to the internet.
+- **Four languages** — English, 한국어, 简体中文 and 日本語. It follows your Windows language and can be changed in Settings › Editor.
+
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### ✍️ Edit like a document
+Headings · lists · to-dos · quotes · code blocks · dividers · `-#` small text show up right away.
+**Tables** are drawn with cells and lines, and turn back into source when you click them.
+
+</td>
+<td width="50%" valign="top">
+
+### 🖼️ Images · audio · video
+Copy an image and press **Ctrl+V** — done. Click it to resize and move it, like in Word.
+Audio plays right in the note (progress bar · volume), and videos show their first frame.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔗 Links between notes
+Ctrl+click links to other notes, specific lines, headings and folders.
+Select text and right-click › **Copy hyperlink** to make a link in one step.
+
+</td>
+<td valign="top">
+
+### ⚡ `/` commands
+No shortcuts to memorize. Type `/` and run commands by name — `/table`, `/link`, `/h2`.
+Type a space and it stays a plain `/`.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🎨 Themes and fonts
+8 themes plus custom colors. Pick body, source-view and interface fonts separately —
+headings stay in your chosen font even if it has no bold style.
+
+</td>
+<td valign="top">
+
+### 🤖 Works with AI
+`TB-Notepad.exe --mcp` turns it into a **local MCP server** so AI like Claude can read and write your notes.
+No cloud, no login, and it never leaves your notes folders. → [Details](docs/MCP.md)
+
+</td>
+</tr>
+</table>
+
+<div align="center">
+<img src="docs/images/en/slash-menu.png" width="49%" alt="/ command list">
+<img src="docs/images/en/source-view.png" width="49%" alt="Source view (Ctrl+E)">
+<br>
+<sub>Left: the <code>/</code> command list · Right: the same note in source view (Ctrl+E)</sub>
+<br><br>
+<img src="docs/images/en/themes.png" alt="Light · Dark · Sepia · Nord themes">
+<br>
+<sub>Light · Dark · Sepia · Nord — 8 themes plus custom colors</sub>
+</div>
+
+## Getting started
+
+1. Download `TB-Notepad.exe` from [**Releases**](https://github.com/tbvwv123/TB-s-Notepad/releases/latest).
+2. Put it anywhere and run it. Nothing to install, no runtime to download.
+3. On first launch it creates a `Documents\TB Notes` folder and opens a **Getting Started** note that walks you through everything.
+
+> [!NOTE]
+> The exe isn't code-signed, so Windows may show "Windows protected your PC" the first time. Click **More info › Run anyway**.
+
+- Drag `.md` files onto the window to open them, or set TB's Notepad as the "Open with" app in Explorer.
+- `.txt` files open as plain text and are saved back with their original encoding (UTF-8, ANSI…) and line endings.
+- Put a `portable.txt` file next to the exe for **portable mode**: settings are kept next to the exe.
+
+## Syntax
+
+| Write this | To get |
 | --- | --- |
-| 저장 | **자동 저장** (입력을 멈추면 바로). "새 메모"는 첫 줄에 맞춰 파일 이름이 정해집니다. 저장 안 한 새 문서도 다음 실행 때 복원 |
-| 그림 | **그림을 복사한 뒤 Ctrl+V** → 메모 옆 `images` 폴더에 PNG로 저장하고 본문에 바로 표시. 탐색기에서 복사한 그림 파일, 창에 끌어다 놓기, 파일에서 넣기도 됨.<br>**그림을 누르면** 워드처럼 크기(25·50·75·100%·원래 크기, 모서리 끌기)와 가로 위치(왼쪽·가운데·오른쪽)를 바꾸고 Delete로 지웁니다. `![설명](경로 "width=50% align=center")` 처럼 저장되어 다른 마크다운 프로그램에서도 깨지지 않습니다 |
-| 작은 글씨 | 줄 맨 앞에 `-# ` 를 쓰면 디스코드처럼 작은 회색 보조 글씨가 됩니다 (서식 메뉴 › 작은 글씨, HTML 내보내기도 지원) |
-| 소리 · 영상 | `![설명](노래.mp3)` · `![설명](클립.mp4)` 처럼 그림과 같은 문법. **소리**는 앱 안에서 재생(재생/멈춤, 재생 막대로 이동, 소리 크기·끄기, 시간 표시 — rodio/symphonia, mp3·wav·flac·ogg·m4a·aac), **영상**은 Windows 셸 썸네일로 첫 장면을 보여 주고 ▶ 를 누르면 기본 플레이어로 엽니다. 크기·위치·지우기는 그림과 같고, 큰 파일이라 문서 폴더로 복사하지 않습니다. HTML 내보내기에서는 `<audio>` · `<video>` |
-| `/` 명령 | 줄 맨 앞이나 띄어쓰기 뒤에서 `/` 를 치면 명령 목록(제목·목록·할 일·인용·작은 글씨·코드 블록·표·구분선·웹/메모/파일/폴더 링크·이 줄 링크 복사·그림·소리·영상·클립보드 그림·날짜). 이어 치는 글자로 걸러지고(영어 낱말·한글 초성도), ↑↓·Enter 로 실행. **스페이스**나 Esc 를 치면 닫히고 `/` 는 글자로 남음 |
-| 메모 사이 링크 | `[회의록](회의/10월.md)` · `[결정](회의/10월.md#결정-사항)` · `[12줄](회의/10월.md#L12)` · `[위로](#L1)` · `[회의](회의)`. **Ctrl+클릭**하면 메모는 앱에서 열고 그 제목·줄을 골라 보여 주며, 메모 폴더 안의 폴더는 사이드바에서 펼칩니다. **메모 링크 넣기**(Ctrl+Shift+K, 이름으로 찾아 고르기), **이 줄 링크 복사**(Ctrl+Shift+L, 제목 줄이면 제목 링크), 사이드바 오른쪽 클릭 › **링크 복사**. 복사한 링크는 붙여넣을 때 그 메모 기준 상대 경로로 바뀝니다 |
-| 파일 · 폴더 링크 | `[보고서](C:/자료/보고서.pdf)` · `[자료](../자료)` 같은 이 PC 경로 링크를 **Ctrl+클릭**하면 폴더는 탐색기로 열고, 파일은 탐색기에서 선택해 보여 줍니다. 파일 링크 넣기 버튼, 메모로 못 여는 파일 끌어다 놓기, 탐색기에서 복사한 파일 Ctrl+V 로 넣기 |
-| 그림 보관 | **그림을 문서 폴더에 함께 보관** (기본 켬): 다른 곳의 그림을 넣거나 문서를 저장할 때 문서 옆 `images` 폴더로 복사하고 링크를 바꿉니다. 다른 이름으로 저장해 폴더가 바뀌어도 그림이 따라갑니다 |
-| 정리 | 여러 폴더를 사이드바에 추가, 하위 폴더 무제한, 이름 바꾸기(F2), 휴지통으로 삭제, 파일 이름·내용 검색(Ctrl+P) |
-| 글꼴 | 본문 글꼴(기본 맑은 고딕), 원본 보기 글꼴, 화면 글꼴, 크기(Ctrl+휠), 화면 배율. 제목·굵은 글씨는 고른 글꼴의 굵은 변형(`Bold` · `SemiBold` … , 이름 끝 `Regular` 는 떼고 찾음) → 가변 글꼴이면 굵기 축 → 둘 다 없으면 같은 글꼴을 겹쳐 그리는 가짜 굵게. 한글이 없는 글꼴은 설정에서 알려 줌. 한글·영문 기준선 자동 정렬 |
-| 색 | 테마 8종(라이트, 다크, 세피아, 노드, 드라큘라, 솔라라이즈드 라이트/다크, 숲) + 사용자 지정 색 |
-| 찾기 | 찾기/바꾸기/모두 바꾸기(Ctrl+F / Ctrl+H), 대소문자 구분, 결과 강조와 "n/전체" |
-| 파일 형식 | UTF-8, UTF-8(BOM), UTF-16 LE/BE, ANSI(CP949) 자동 인식·저장, CRLF/LF 유지 |
-| .txt 파일 | 서식 없이 일반 텍스트 그대로 열고, 원래 파일·인코딩·줄 끝으로 저장. 서식 도구·그림 넣기는 꺼짐 |
-| 기타 | HTML로 내보내기, 항상 위, 전체 화면(F11), 본문 폭 제한(넓은 창에서 가운데 정렬) |
+| `# Heading` `## Heading` `### Heading` | Large to small headings |
+| `**bold**` `*italic*` `~~strike~~` `` `code` `` | **bold** *italic* ~~strike~~ `code` |
+| `- item` · `1. item` · `- [ ] to-do` | Bulleted list · numbered list · clickable checkbox |
+| `> quote` · `-# small text` · `---` | Quote bar · small gray text · divider |
+| `\| cell \| cell \|` + `\| --- \| --- \|` | Table (`:---:` center, `---:` right aligned) |
+| `![alt](image.png "width=50% align=center")` | Image with size and position |
+| `![alt](song.mp3)` · `![alt](clip.mp4)` | Audio card · video card |
+| `[link](https://…)` · `[Minutes](meetings/oct.md#L12)` · `[Files](C:/Files)` | Web link · link to a line in a note · Explorer link |
 
-## 단축키
+Also: code blocks (```` ``` ````), HTML export, find and replace, and search across file names and contents.
 
-| 키 | 동작 |
+<details>
+<summary><b>Keyboard shortcuts</b></summary>
+
+| Key | Action |
 | --- | --- |
-| Ctrl+N | 새 메모 (지금 폴더에) |
-| Ctrl+P | 메모 검색 |
-| Ctrl+\\ | 사이드바 열고 닫기 |
-| F2 | 지금 메모 이름 바꾸기 |
-| Ctrl+O / S | 파일 열기 / 저장 |
-| Ctrl+F / H, F3 | 찾기 / 바꾸기, 다음 찾기 |
-| Ctrl+B / I / K | 굵게 / 기울임 / 링크 |
-| `/` | 명령 목록 (줄 맨 앞·띄어쓰기 뒤에서, 스페이스로 닫기) |
-| Ctrl+Shift+K | 메모 링크 넣기 (다른 메모·폴더 고르기) |
-| Ctrl+Shift+L | 이 줄(제목) 링크 복사 |
-| Ctrl+클릭 | 링크 따라가기 (웹·메모·줄·폴더·파일) |
-| Ctrl+Alt+1~3 | 제목 1~3 |
-| Ctrl+V | 붙여넣기 (클립보드에 그림만 있으면 그림) |
-| Ctrl+E | 마크다운 원본 보기 |
-| Ctrl+휠, Ctrl+= / - / 0 | 글자 크기 |
-| Ctrl+, | 설정 |
+| Ctrl+N | New note (in the current folder) |
+| Ctrl+P | Search notes |
+| Ctrl+\\ | Toggle sidebar |
+| F2 | Rename this note |
+| Ctrl+O / Ctrl+S | Open / save file |
+| Ctrl+F / Ctrl+H, F3 | Find / replace, find next |
+| Ctrl+B / I / K | Bold / italic / link |
+| Ctrl+Alt+1–3 | Heading 1–3 |
+| `/` | Command list (at line start or after a space; space closes it) |
+| Ctrl+Shift+K | Insert note link |
+| Ctrl+Shift+L | Copy hyperlink to this line (or heading) |
+| Ctrl+click | Follow a link (web · note · line · folder · file) |
+| Ctrl+V | Paste (pastes the image if the clipboard only has one) |
+| Ctrl+E | Markdown source view |
+| Ctrl+wheel, Ctrl+= / - / 0 | Text size |
+| Ctrl+, | Settings |
+| F5 | Insert date and time |
+| F11 | Full screen |
 
-> Ctrl+V 동작 원리: egui는 클립보드에 텍스트가 없으면 Ctrl+V를 조용히 삼킵니다. 그래서 Windows에서는 창을 서브클래싱해
-> winit보다 먼저 키 입력을 보고, "텍스트는 없고 그림/파일이 있는" 경우에만 그림 붙여넣기를 실행합니다 (`src/paste_hook.rs`).
+</details>
 
-## AI와 함께 쓰기 (MCP)
+## FAQ
 
-Claude Desktop이나 Claude Code 같은 AI가 메모 폴더를 직접 읽고 쓸 수 있습니다.
-**클라우드 서버도, 로그인도 필요 없습니다.** AI 프로그램이 이 PC에서 `TB-Notepad.exe --mcp`를 직접 실행하고,
-표준 입출력(stdio)으로 [MCP](https://modelcontextprotocol.io) 메시지를 주고받습니다. 창은 뜨지 않고, 인터넷으로 나가는 것도 없습니다.
-각자 자기 PC에서 자기 메모 폴더만 다룹니다.
+<details>
+<summary><b>Where are my notes stored?</b></summary>
 
-AI가 쓸 수 있는 도구:
+As ordinary `.md` files in the folders you add to the sidebar (by default `Documents\TB Notes`).
+Pasted images are saved as PNGs in an `images` folder next to the note. Settings live in `%APPDATA%\tb-notepad`.
 
-| 도구 | 하는 일 |
-| --- | --- |
-| `list_notes` | 메모 폴더의 하위 폴더와 메모를 트리로 보기 (`folder`로 범위 좁히기) |
-| `read_note` | 메모 하나 읽기 |
-| `search_notes` | 파일 이름과 내용에서 찾기 (대소문자 무시, 맞는 줄 함께) |
-| `create_note` | 새 메모 만들기 (없는 하위 폴더도 만듦, 같은 이름이 있으면 실패) |
-| `update_note` | 메모 내용 전체 바꾸기 |
-| `append_to_note` | 메모 끝에 덧붙이기 |
+</details>
 
-- 다루는 범위는 앱 설정의 **메모 폴더**(사이드바의 폴더들)입니다. 앱에서 폴더를 더하면 다음 요청부터 바로 보입니다.
-- 경로는 `TB Notes/일기/10월.md`처럼 메모 폴더 이름부터 씁니다 (메모 폴더가 하나뿐이면 앞의 이름은 빼도 됨).
-- 메모 폴더 밖으로는 나갈 수 없습니다: `..`, 절대 경로, 드라이브 문자, 폴더 밖을 가리키는 링크(정션)는 모두 거부합니다.
-- `.md`와 `.txt`만 다룹니다. 지우기·이름 바꾸기 도구는 없습니다.
-- 저장은 앱과 똑같이 임시 파일에 쓴 뒤 교체하고, 원래 인코딩(UTF-8, UTF-16, CP949 등)과 줄 끝(CRLF/LF)을 유지합니다.
-- 설정 위치 규칙(`TB_NOTEPAD_DATA`, 포터블 모드)도 앱과 같습니다. 포터블로 쓰면 그 실행 파일 경로를 등록하세요.
+<details>
+<summary><b>Can I use it across PCs and my phone?</b></summary>
 
-### Claude Desktop에 연결
+Put your notes folder inside a synced folder such as Google Drive, OneDrive or Dropbox.
+The app reloads notes that change outside it, and asks which version to keep if both sides changed.
+On your phone, edit the same folder with any markdown editor.
 
-`%APPDATA%\Claude\claude_desktop_config.json` (Claude Desktop의 설정 › 개발자 › 설정 편집)에 추가하고 Claude Desktop을 다시 켭니다.
-`command`는 실행 파일이 있는 실제 경로로 바꾸세요 (JSON에서는 `\`를 두 번 씁니다).
+</details>
 
-```json
-{
-  "mcpServers": {
-    "tb-notepad": {
-      "command": "C:\\Apps\\TB-Notepad.exe",
-      "args": ["--mcp"]
-    }
-  }
-}
-```
+<details>
+<summary><b>Does it work with other markdown apps?</b></summary>
 
-### Claude Code에 연결
+Yes. Image size and position go in the title part of standard image syntax — `![alt](path "width=50% align=center")` —
+so images stay intact elsewhere. Links are relative, so you can move whole folders around.
+
+</details>
+
+<details>
+<summary><b>macOS or Linux?</b></summary>
+
+Windows 10 and 11 only for now.
+
+</details>
+
+## Development
+
+Built with Rust and [egui](https://github.com/emilk/egui). See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for building and the code layout, and [docs/MCP.md](docs/MCP.md) for the AI (MCP) integration.
 
 ```powershell
-claude mcp add --scope user tb-notepad -- "C:\Apps\TB-Notepad.exe" --mcp
+powershell -ExecutionPolicy Bypass -File .\build.ps1   # → dist\TB-Notepad.exe
+cargo test
 ```
 
-`--scope user`는 모든 프로젝트에서 쓰겠다는 뜻입니다. 확인은 `claude mcp list`.
+UI text lives in `scripts/i18n_strings.py`; run `python scripts/gen-i18n.py` after editing it. Translation fixes are welcome!
 
-### 앱이 켜져 있을 때
+## License
 
-앱은 창이 포커스를 얻을 때와 2초마다 열린 메모가 밖에서 바뀌었는지 확인합니다.
-
-- 앱에서 고치지 않은 메모는 AI가 바꾼 내용을 **조용히 다시 불러옵니다** (커서 위치 유지).
-- 앱에서 고치는 중(저장 전)이던 메모를 AI가 바꾸면, 자동 저장이 덮어쓰지 않도록 **자동 저장을 멈추고**
-  "파일이 밖에서 바뀌었습니다" 창에서 *다시 불러오기* / *내 내용 유지* 중 고르게 합니다.
-
-그래도 같은 메모를 사람과 AI가 동시에 고치면 한쪽을 골라야 하니, AI에게 맡긴 메모는 잠시 손대지 않는 것이 편합니다.
-
-### 동작 확인
-
-```powershell
-python -X utf8 scripts\mcp-smoke.py dist\TB-Notepad.exe
-```
-
-임시 폴더에서 `initialize` → `tools/list` → `tools/call`(만들기, 덧붙이기, 목록, 검색, 읽기, 폴더 밖 접근 거부)을 보내고 응답을 보여 줍니다.
-
-구현 메모: 공식 Rust SDK(`rmcp`)는 tokio 비동기 런타임, JSON 스키마 생성(schemars) 등을 함께 끌고 옵니다.
-여기서 필요한 것은 한 줄에 하나씩 오가는 JSON-RPC 몇 가지(`initialize`, `ping`, `tools/list`, `tools/call`)뿐이라
-`src/mcp.rs`에 직접 구현했습니다. 새로 늘어난 의존성은 `serde_json` 하나이고 (`ron`은 eframe이 이미 쓰던 것), 실행 파일 크기도 그대로입니다.
-
-## 빌드
-
-필요한 것: Rust(GNU 툴체인) + MinGW-w64. 이 PC에는 이미 설치되어 있습니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build.ps1
-```
-
-다른 PC에서 처음 준비할 때:
-
-```powershell
-winget install Rustlang.Rustup
-rustup default stable-x86_64-pc-windows-gnu
-winget install BrechtSanders.WinLibs.POSIX.MSVCRT
-```
-
-로고는 `python scripts/make-logo.py`로 다시 만들 수 있습니다(`assets/logo.png`, `assets/logo.ico`). 실행 파일 아이콘은 `build.rs`가 windres로 `assets/app.rc`를 넣습니다.
-
-참고: 폴더 이름의 작은따옴표(`TB's`)가 MinGW 링커를 깨뜨리기 때문에 `.cargo/config.toml`에서 빌드 결과물 위치를 `%LOCALAPPDATA%\tb-notepad\target`으로 옮겨 두었습니다.
-
-설정과 세션은 `%APPDATA%\tb-notepad\data\app.ron`에 저장됩니다.
-- 실행 파일 옆에 `portable.txt`를 만들면 실행 파일 옆 `data` 폴더에 저장합니다 (USB 휴대용).
-- 환경 변수 `TB_NOTEPAD_DATA`로 저장 폴더를 지정하면 기본 메모 폴더도 그 안에 만듭니다 (테스트용).
-
-## 코드 구조
-
-| 파일 | 역할 |
-| --- | --- |
-| `src/main.rs` | 진입점, 창 설정, 창 아이콘(`assets/logo.png`), 저장 폴더 결정 |
-| `build.rs` | 실행 파일에 아이콘·파일 정보 넣기 (`assets/app.rc`, windres) |
-| `scripts/make-logo.py` | 로고 만들기: 검정 타일 + 흰 TB + 빨간 커서 (`assets/`) |
-| `src/app/mod.rs` | 앱 상태와 초기화, 화면 배치(패널 순서), 테마·글꼴 적용, 세션 저장 |
-| `src/app/editor.rs` | 본문 편집기: 글자 배치(문서 모드/원본 보기), 그림 줄 커서 처리, 찾은 위치·줄 번호 |
-| `src/app/decorations.rs` | 문서 모드 꾸밈 그리기: 목록 점, 체크박스, 인용 막대, 그림 선택·크기 손잡이, 링크 |
-| `src/app/files.rs` | 열기·닫기·저장, 자동 저장, 밖에서 바뀐 파일 다시 읽기, 사이드바 파일 작업, 시작 메모 |
-| `src/app/images.rs` | 그림·소리·영상·파일 링크 넣기·붙여넣기, 그림 크기·위치·삭제, 그림 앞/뒤 입력 처리 |
-| `src/app/slash.rs` | `/` 명령 목록: 명령 표, 걸러내기(초성 포함), 열기·닫기·키 처리, 실행 |
-| `src/app/note_links.rs` | 링크 따라가기(메모 열고 줄·제목으로, 폴더는 사이드바, 그 밖은 탐색기), 이 줄 링크 복사, 메모 링크 고르기 창 |
-| `src/app/media_cards.rs` | 소리 카드(재생/멈춤·재생 막대·소리 크기)와 영상 카드(첫 장면·기본 플레이어로 열기), 파일 정보 읽기 |
-| `src/app/find.rs` | 찾기 / 바꾸기 카드 |
-| `src/app/chrome.rs` | ⋯ 메뉴, 사이드바 머리, 상단 바, 서식 도구, 상태 표시줄 |
-| `src/app/input.rs` | 단축키, 끌어다 놓기, 창 닫기 |
-| `src/app/dialogs.rs` | 대화상자 (저장 확인, 휴지통, 새 폴더, 밖에서 바뀐 파일) |
-| `src/app/settings_ui.rs` | 설정 창 |
-| `src/media.rs` | 소리·영상 종류 판별, 소리 재생기(rodio), Windows 셸 썸네일, 로컬 파일 링크 해석 |
-| `src/links.rs` | 메모 사이 링크 풀기(경로 · `#L12` 줄 · `#제목`), 제목 비교용 slug, 상대 경로 만들기, 붙여넣은 링크를 상대 경로로 |
-| `src/live.rs` | 문서 모드 배치: 기호 숨기기, 서식 적용, 목록 점·체크박스·그림 등 꾸밈 정보 |
-| `src/sidebar.rs` | 폴더 트리, 검색, 이름 바꾸기, 휴지통 삭제, 기본 메모 폴더 |
-| `src/document.rs` | 문서 상태, 인코딩 감지/변환, 안전한 저장(임시 파일 → 교체) |
-| `src/markdown.rs` | 원본 보기 문법 강조, HTML 내보내기, 서식 도구 동작, 찾기 |
-| `src/settings.rs` | 설정 값, 테마 팔레트와 전역 스타일 |
-| `src/fonts.rs` | 시스템 글꼴 목록, 본문/굵게/코드 글꼴 묶음, 굵은 변형 찾기·가변 글꼴 굵기·가짜 굵게, 한글·영문 기준선 보정 |
-| `src/ui_kit.rs` | 직접 그리는 벡터 아이콘, 납작한 버튼, 스위치 |
-| `src/paste_hook.rs` | Windows 창 서브클래싱으로 Ctrl+V 그림 붙여넣기 감지 |
-| `src/mcp.rs` | `--mcp` 모드: AI용 로컬 MCP 서버 (stdio JSON-RPC, 메모 폴더 경로 제한, 메모 도구) |
-
-테스트: `cargo test`
+[MIT](LICENSE) © 2026 TBvwv123

@@ -56,6 +56,16 @@ impl NotepadApp {
         // / 명령 목록이 열려 있으면 ↑↓ · Enter · Esc 는 목록이 받음
         let slash_key = if ctx.memory(|m| m.has_focus(id)) { self.slash_keys(&ctx, id) } else { None };
         let typed_slash = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('/'))));
+        // 오른쪽 클릭하면 TextEdit 이 커서를 옮겨 선택이 풀리므로, 그 전의 선택을 기억해 둠
+        let right_press = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
+        let sel_before = if right_press {
+            TextEditState::load(&ctx, id).and_then(|s| s.cursor.char_range()).filter(|r| !r.is_empty())
+        } else {
+            None
+        };
+        let is_md = self.doc().is_markdown();
+        let has_path = self.doc().path.is_some();
+        let mut menu_pick = None;
 
         let find_matches = if self.find.open && !self.find.query.is_empty() {
             self.refresh_matches();
@@ -150,7 +160,7 @@ impl NotepadApp {
                     .desired_width(if wrap { col_w - gutter_w } else { f32::INFINITY })
                     .desired_rows(rows)
                     .lock_focus(true)
-                    .hint_text(if doc_mode { "제목을 쓰고 Enter를 눌러 시작하세요" } else { "" })
+                    .hint_text(if doc_mode { t!("제목을 쓰고 Enter를 눌러 시작하세요") } else { "" })
                     .layouter(&mut layouter)
                     .show(ui);
 
@@ -213,6 +223,24 @@ impl NotepadApp {
 
                 // 커서가 그림 줄의 경로 글자 안으로 들어가면 그림 앞/뒤로 밀어냅니다.
                 let mut cursor_range = output.cursor_range.or_else(|| output.state.cursor.char_range());
+                // 선택한 글자 위를 오른쪽 클릭했으면 선택을 되살림 (밖을 눌렀으면 그 자리로 커서만)
+                if right_press && response.hovered() {
+                    if let (Some(old), Some(now)) = (sel_before, cursor_range) {
+                        let r = old.as_sorted_char_range();
+                        if (r.start.0..=r.end.0).contains(&now.primary.index.0) {
+                            let mut st = output.state.clone();
+                            st.cursor.set_char_range(Some(old));
+                            st.store(&ctx, id);
+                            cursor_range = Some(old);
+                        }
+                    }
+                    let r = cursor_range.map(|c| c.as_sorted_char_range());
+                    self.menu_sel = r.map(|r| (doc_id, r.start.0..r.end.0));
+                }
+                let menu_has_sel = self.menu_sel.as_ref().is_some_and(|(d, r)| *d == doc_id && !r.is_empty());
+                response.context_menu(|ui| {
+                    menu_pick = edit_menu::edit_menu_ui(ui, menu_has_sel, is_md, has_path);
+                });
                 if doc_mode
                     && editor_focused
                     && let Some(range) = cursor_range
@@ -288,6 +316,12 @@ impl NotepadApp {
         });
 
         self.slash_menu(&ctx, id, typed_slash, caret_rect, editor_focused, slash_key);
+        if let Some(what) = menu_pick
+            && let Some((d, sel)) = self.menu_sel.take()
+            && d == doc_id
+        {
+            self.apply_edit_menu(&ctx, id, what, sel);
+        }
 
         // 그림 도구 막대 (선택한 그림 위에 떠 있음)
         let mut image_action = decorations.image_action;

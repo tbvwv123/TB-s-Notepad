@@ -143,15 +143,15 @@ impl AudioPlayer {
 
     fn start(&mut self, path: &Path, from: Duration) -> Result<(), String> {
         if self.device.is_none() {
-            let mut device = rodio::DeviceSinkBuilder::open_default_sink()
-                .map_err(|e| format!("소리 장치를 열 수 없습니다: {e}"))?;
+            let mut device =
+                rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| tf!("소리 장치를 열 수 없습니다: {}", e))?;
             device.log_on_drop(false);
             self.device = Some(device);
         }
-        let file = std::fs::File::open(path).map_err(|e| format!("소리 파일을 열 수 없습니다: {e}"))?;
-        let decoder = rodio::Decoder::try_from(file).map_err(|e| format!("이 소리 형식은 재생할 수 없습니다: {e}"))?;
+        let file = std::fs::File::open(path).map_err(|e| tf!("소리 파일을 열 수 없습니다: {}", e))?;
+        let decoder = rodio::Decoder::try_from(file).map_err(|e| tf!("이 소리 형식은 재생할 수 없습니다: {}", e))?;
         self.duration = rodio::Source::total_duration(&decoder);
-        let player = rodio::Player::connect_new(self.device.as_ref().map(|d| d.mixer()).ok_or("소리 장치 없음")?);
+        let player = rodio::Player::connect_new(self.device.as_ref().map(|d| d.mixer()).ok_or(t!("소리 장치 없음"))?);
         player.set_volume(gain(self.volume));
         player.append(decoder);
         if from > Duration::ZERO {
@@ -171,7 +171,7 @@ impl AudioPlayer {
         let target = total.mul_f32(fraction.clamp(0.0, 1.0));
         match &self.player {
             // 끝까지 재생해서 비었으면 다시 넣고 이동
-            Some(p) if !p.empty() => p.try_seek(target).map_err(|e| format!("이동할 수 없습니다: {e}")),
+            Some(p) if !p.empty() => p.try_seek(target).map_err(|e| tf!("이동할 수 없습니다: {}", e)),
             _ => self.start(path, target),
         }
     }
@@ -289,7 +289,7 @@ pub fn open_with_default_app(path: &Path) -> std::io::Result<()> {
         if r.0 as isize > 32 {
             Ok(())
         } else {
-            Err(std::io::Error::other(format!("열 수 없습니다 (코드 {})", r.0 as isize)))
+            Err(std::io::Error::other(tf!("열 수 없습니다 (코드 {})", r.0 as isize)))
         }
     }
     #[cfg(not(windows))]

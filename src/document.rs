@@ -268,8 +268,8 @@ impl Document {
             Some(p) => {
                 p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
             }
-            None if self.untitled_index <= 1 => "제목 없음".to_owned(),
-            None => format!("제목 없음 {}", self.untitled_index),
+            None if self.untitled_index <= 1 => t!("제목 없음").to_owned(),
+            None => tf!("제목 없음 {}", self.untitled_index),
         }
     }
 

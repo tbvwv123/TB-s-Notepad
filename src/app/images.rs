@@ -76,7 +76,7 @@ impl NotepadApp {
     /// 파일 목록을 문서에 넣습니다: 그림·소리·영상은 그 자리에 보이게, 나머지 파일·폴더는 링크로.
     pub(super) fn insert_paths(&mut self, ctx: &egui::Context, paths: &[PathBuf]) {
         if !self.doc().is_markdown() {
-            self.set_status(ctx, "텍스트 파일(.txt)에는 그림·소리·영상·링크를 넣을 수 없습니다");
+            self.set_status(ctx, t!("텍스트 파일(.txt)에는 그림·소리·영상·링크를 넣을 수 없습니다"));
             return;
         }
         let (media, others): (Vec<&PathBuf>, Vec<&PathBuf>) = paths.iter().partition(|p| is_embeddable(p));
@@ -84,9 +84,9 @@ impl NotepadApp {
         let links: Vec<String> = others.into_iter().map(|p| self.file_link(p)).collect();
         let msg = match (media.len(), links.len()) {
             (0, 0) => return,
-            (m, 0) => format!("{m}개를 넣었습니다"),
-            (0, l) => format!("링크 {l}개를 넣었습니다 (Ctrl+클릭하면 탐색기에서 열림)"),
-            (m, l) => format!("{m}개와 링크 {l}개를 넣었습니다"),
+            (m, 0) => tf!("{}개를 넣었습니다", m),
+            (0, l) => tf!("링크 {}개를 넣었습니다 (Ctrl+클릭하면 탐색기에서 열림)", l),
+            (m, l) => tf!("{}개와 링크 {}개를 넣었습니다", m, l),
         };
         self.set_status(ctx, msg);
         // 둘 다 있으면 링크를 먼저 글처럼 넣고, 그림·소리·영상은 그 아래 줄로
@@ -105,10 +105,10 @@ impl NotepadApp {
         }
         let all: Vec<&str> = [IMAGE_EXTENSIONS, media::AUDIO_EXTENSIONS, media::VIDEO_EXTENSIONS].concat();
         let mut dlg = rfd::FileDialog::new()
-            .add_filter("그림 · 소리 · 영상", &all)
-            .add_filter("그림", IMAGE_EXTENSIONS)
-            .add_filter("소리", media::AUDIO_EXTENSIONS)
-            .add_filter("영상", media::VIDEO_EXTENSIONS);
+            .add_filter(t!("그림 · 소리 · 영상"), &all)
+            .add_filter(t!("그림"), IMAGE_EXTENSIONS)
+            .add_filter(t!("소리"), media::AUDIO_EXTENSIONS)
+            .add_filter(t!("영상"), media::VIDEO_EXTENSIONS);
         if let Some(dir) = self.doc().dir() {
             dlg = dlg.set_directory(dir);
         }
@@ -136,7 +136,7 @@ impl NotepadApp {
 
     pub(super) fn paste_clipboard_image(&mut self, ctx: &egui::Context) {
         if !self.doc().is_markdown() {
-            self.set_status(ctx, "텍스트 파일(.txt)에는 그림을 넣을 수 없습니다");
+            self.set_status(ctx, t!("텍스트 파일(.txt)에는 그림을 넣을 수 없습니다"));
             return;
         }
         let Ok(mut clipboard) = arboard::Clipboard::new() else { return };
@@ -146,7 +146,7 @@ impl NotepadApp {
                 // 탐색기에서 복사한 파일·폴더: 그림·소리·영상은 그대로 보이게, 나머지는 탐색기 링크로
                 let files = clipboard.get().file_list().unwrap_or_default();
                 if files.is_empty() {
-                    self.set_status(ctx, "클립보드에 이미지가 없습니다");
+                    self.set_status(ctx, t!("클립보드에 이미지가 없습니다"));
                 } else {
                     self.insert_paths(ctx, &files);
                 }
@@ -160,16 +160,16 @@ impl NotepadApp {
         let file = dir.join(format!("image_{}.png", chrono::Local::now().format("%Y%m%d_%H%M%S")));
         let result = std::fs::create_dir_all(&dir).map_err(|e| e.to_string()).and_then(|_| {
             let buf = image::RgbaImage::from_raw(image.width as u32, image.height as u32, image.bytes.into_owned())
-                .ok_or_else(|| "이미지 형식이 올바르지 않습니다".to_owned())?;
+                .ok_or_else(|| t!("이미지 형식이 올바르지 않습니다").to_owned())?;
             buf.save_with_format(&file, image::ImageFormat::Png).map_err(|e| e.to_string())
         });
         match result {
             Ok(()) => {
                 let link = self.image_link(&file);
                 self.insert_image_links(vec![link]);
-                self.set_status(ctx, "이미지를 붙여넣었습니다");
+                self.set_status(ctx, t!("이미지를 붙여넣었습니다"));
             }
-            Err(err) => self.dialog = Some(Dialog::Message(format!("이미지를 저장하지 못했습니다.\n{err}"))),
+            Err(err) => self.dialog = Some(Dialog::Message(tf!("이미지를 저장하지 못했습니다.\n{}", err))),
         }
     }
 
@@ -350,24 +350,24 @@ pub(super) fn image_toolbar_ui(
                 ui.spacing_mut().item_spacing.x = 1.0;
                 for pct in [25, 50, 75, 100] {
                     let label = RichText::new(format!("{pct}%")).size(12.5);
-                    if ui_kit::text_button(ui, label, &format!("본문 폭의 {pct}%"), width == Some(pct), base).clicked()
+                    if ui_kit::text_button(ui, label, &tf!("본문 폭의 {}%", pct), width == Some(pct), base).clicked()
                     {
                         action = Some(ImageAction::Width(line, Some(pct)));
                     }
                 }
                 let (label, tip) = if is_image {
-                    ("원래 크기", "그림 원래 크기 (본문 폭을 넘지 않게)")
+                    (t!("원래 크기"), t!("그림 원래 크기 (본문 폭을 넘지 않게)"))
                 } else {
-                    ("기본 크기", "카드 기본 크기")
+                    (t!("기본 크기"), t!("카드 기본 크기"))
                 };
                 if ui_kit::text_button(ui, RichText::new(label).size(12.5), tip, width.is_none(), base).clicked() {
                     action = Some(ImageAction::Width(line, None));
                 }
                 ui.add_space(8.0);
                 for (a, icon, tip) in [
-                    (ImgAlign::Left, Icon::AlignLeft, "왼쪽"),
-                    (ImgAlign::Center, Icon::AlignCenter, "가운데"),
-                    (ImgAlign::Right, Icon::AlignRight, "오른쪽"),
+                    (ImgAlign::Left, Icon::AlignLeft, t!("왼쪽")),
+                    (ImgAlign::Center, Icon::AlignCenter, t!("가운데")),
+                    (ImgAlign::Right, Icon::AlignRight, t!("오른쪽")),
                 ] {
                     if ui_kit::icon_button(ui, icon, tip, align == a, base).clicked() {
                         action = Some(ImageAction::Align(line, a));
@@ -377,7 +377,7 @@ pub(super) fn image_toolbar_ui(
                 if ui_kit::icon_button(
                     ui,
                     Icon::Trash,
-                    if is_image { "그림 지우기 (Delete)" } else { "지우기 (Delete)" },
+                    if is_image { t!("그림 지우기 (Delete)") } else { t!("지우기 (Delete)") },
                     false,
                     base,
                 )

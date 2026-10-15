@@ -436,7 +436,7 @@ pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
     let code_bg = mix(c(palette.editor_bg), c(palette.text), 0.07);
     format!(
         r#"<!DOCTYPE html>
-<html lang="ko">
+<html lang="{lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -465,6 +465,7 @@ pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
 </body>
 </html>
 "#,
+        lang = crate::i18n::lang().code(),
         title = html_escape(title),
         bg = hexc(palette.editor_bg),
         fg = hexc(palette.text),
@@ -612,12 +613,12 @@ pub fn apply_action(text: &mut String, sel: Range<usize>, action: &MdAction) -> 
     let start = char_to_byte(text, sel.start);
     let end = char_to_byte(text, sel.end);
     let b = match action {
-        MdAction::Bold => wrap(text, start, end, "**", "**", "굵은 글씨"),
-        MdAction::Italic => wrap(text, start, end, "*", "*", "기울임"),
-        MdAction::Strike => wrap(text, start, end, "~~", "~~", "취소선"),
+        MdAction::Bold => wrap(text, start, end, "**", "**", t!("굵은 글씨")),
+        MdAction::Italic => wrap(text, start, end, "*", "*", t!("기울임")),
+        MdAction::Strike => wrap(text, start, end, "~~", "~~", t!("취소선")),
         MdAction::Code => wrap(text, start, end, "`", "`", "code"),
         MdAction::Link => {
-            let label = if start == end { "링크 텍스트".to_owned() } else { text[start..end].to_owned() };
+            let label = if start == end { t!("링크 텍스트").to_owned() } else { text[start..end].to_owned() };
             let ins = format!("[{label}](https://)");
             text.replace_range(start..end, &ins);
             // 주소 부분을 선택해서 바로 입력할 수 있게
@@ -656,11 +657,11 @@ pub fn apply_action(text: &mut String, sel: Range<usize>, action: &MdAction) -> 
             s..s + inner.len()
         }
         MdAction::Table => {
-            let tpl = "| 제목 1 | 제목 2 | 제목 3 |\n| --- | --- | --- |\n| 내용 | 내용 | 내용 |\n";
+            let tpl = t!("| 제목 1 | 제목 2 | 제목 3 |\n| --- | --- | --- |\n| 내용 | 내용 | 내용 |\n");
             let r = insert_block(text, start, end, tpl);
             // 첫 칸("제목 1")을 골라 둬서 바로 고쳐 쓰게
-            match text[start..r.end].find("제목 1") {
-                Some(i) => start + i..start + i + "제목 1".len(),
+            match text[start..r.end].find(t!("제목 1")) {
+                Some(i) => start + i..start + i + t!("제목 1").len(),
                 None => r,
             }
         }

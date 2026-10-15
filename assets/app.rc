@@ -12,6 +12,7 @@ BEGIN
       VALUE "FileDescription", "TB's Notepad"
       VALUE "ProductName", "TB's Notepad"
       VALUE "OriginalFilename", "TB-Notepad.exe"
+      VALUE "LegalCopyright", "Copyright (c) 2026 TBvwv123 (MIT License)"
       VALUE "FileVersion", "0.1.0"
       VALUE "ProductVersion", "0.1.0"
     END

@@ -110,14 +110,16 @@ fn rank(cmd: &Command, query: &str) -> Option<u8> {
     if q.is_empty() {
         return Some(0);
     }
-    let label = squash(cmd.label);
-    if label.starts_with(&q) {
+    // 지금 언어의 이름과 한국어 이름 둘 다로 찾음
+    let label = squash(crate::i18n::tr(cmd.label));
+    let label_ko = squash(cmd.label);
+    if label.starts_with(&q) || label_ko.starts_with(&q) {
         return Some(0);
     }
     if cmd.keywords.split_whitespace().any(|k| k.to_lowercase().starts_with(&q)) {
         return Some(1);
     }
-    if label.contains(&q) {
+    if label.contains(&q) || label_ko.contains(&q) {
         return Some(2);
     }
     if q.chars().all(|c| CHOSUNG.contains(&c)) && chosung(cmd.label).contains(&q) {
@@ -381,7 +383,7 @@ fn popup_ui(
                 let k = ui_kit::colors(ui);
                 if items.is_empty() {
                     ui.add_space(6.0);
-                    ui.label(RichText::new("  맞는 명령이 없습니다").color(k.muted));
+                    ui.label(RichText::new(t!("  맞는 명령이 없습니다")).color(k.muted));
                     ui.add_space(6.0);
                 }
                 ScrollArea::vertical().max_height(list_h).auto_shrink([false, true]).show(ui, |ui| {
@@ -416,7 +418,7 @@ fn popup_ui(
                         p.text(
                             rect.left_center() + egui::vec2(42.0, 0.0),
                             Align2::LEFT_CENTER,
-                            cmd.label,
+                            crate::i18n::tr(cmd.label),
                             FontId::proportional(14.0),
                             k.text,
                         );
@@ -435,7 +437,7 @@ fn popup_ui(
                     }
                 });
                 ui.add_space(4.0);
-                ui.label(RichText::new("  ↑↓ 고르기 · Enter 실행 · Space / Esc 닫기").size(11.0).color(k.muted));
+                ui.label(RichText::new(t!("  ↑↓ 고르기 · Enter 실행 · Space / Esc 닫기")).size(11.0).color(k.muted));
             });
         },
     );

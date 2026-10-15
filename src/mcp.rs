@@ -26,9 +26,9 @@ const MAX_LIST_ENTRIES: usize = 2000;
 const MAX_SEARCH_RESULTS: usize = 50;
 const MAX_SNIPPETS: usize = 3;
 
-const INSTRUCTIONS: &str = "TB's Notepad의 메모 폴더(이 PC의 .md/.txt 파일)를 읽고 씁니다. \
-경로는 list_notes가 보여 주는 그대로 '메모 폴더 이름/하위 폴더/파일.md' 꼴로 씁니다. \
-메모 폴더 밖, 절대 경로, '..'은 쓸 수 없습니다. 새 메모는 보통 .md(마크다운)로 만듭니다.";
+const INSTRUCTIONS: &str = "Reads and writes the notes folders of TB's Notepad (.md/.txt files on this PC). \
+Write paths exactly as list_notes shows them: 'notes folder name/subfolder/file.md'. \
+Paths outside the notes folders, absolute paths and '..' are not allowed. New notes are usually .md (Markdown).";
 
 /// stdin에서 메시지를 읽어 stdout으로 답합니다. stdin이 닫히면 끝납니다.
 pub fn run() {
@@ -63,7 +63,7 @@ impl Server {
                 (!replies.is_empty()).then_some(Value::Array(replies))
             }
             Ok(msg) => self.handle(&msg),
-            Err(e) => Some(rpc_error(Value::Null, -32700, &format!("JSON을 읽을 수 없습니다: {e}"))),
+            Err(e) => Some(rpc_error(Value::Null, -32700, &format!("Invalid JSON: {e}"))),
         }
     }
 
@@ -81,7 +81,7 @@ impl Server {
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": tool_definitions() })),
             "tools/call" => self.call_tool(&params),
-            _ => Err((-32601, format!("지원하지 않는 메서드: {method}"))),
+            _ => Err((-32601, format!("Unsupported method: {method}"))),
         };
         Some(match result {
             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
@@ -90,8 +90,7 @@ impl Server {
     }
 
     fn call_tool(&self, params: &Value) -> Result<Value, (i64, String)> {
-        let name =
-            params.get("name").and_then(Value::as_str).ok_or((-32602, "도구 이름(name)이 없습니다".to_owned()))?;
+        let name = params.get("name").and_then(Value::as_str).ok_or((-32602, "Missing tool name (name)".to_owned()))?;
         let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
         let vault = self.vault();
         let outcome = match name {
@@ -107,7 +106,7 @@ impl Server {
             "append_to_note" => {
                 req_str(&args, "path").and_then(|p| req_str(&args, "content").and_then(|c| vault.append_to_note(p, c)))
             }
-            _ => return Err((-32602, format!("알 수 없는 도구: {name}"))),
+            _ => return Err((-32602, format!("Unknown tool: {name}"))),
         };
         // 도구 실행 중 생긴 문제는 JSON-RPC 오류가 아니라 결과의 isError로 알려서 AI가 읽고 고칠 수 있게 합니다.
         let (text, is_error) = match outcome {
@@ -145,58 +144,57 @@ fn opt_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 fn req_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
-    opt_str(args, key).ok_or_else(|| format!("'{key}' 값(문자열)이 필요합니다"))
+    opt_str(args, key).ok_or_else(|| format!("'{key}' (string) is required"))
 }
 
 fn tool_definitions() -> Value {
-    let path = json!({ "type": "string", "description": "메모 경로. 예: 'TB Notes/일기/10월.md' (list_notes에 나오는 그대로)" });
-    let folder =
-        json!({ "type": "string", "description": "이 폴더 안만 봅니다. 예: 'TB Notes/일기'. 비우면 모든 메모 폴더" });
-    let content = json!({ "type": "string", "description": "메모 내용 (마크다운)" });
+    let path = json!({ "type": "string", "description": "Note path, e.g. 'TB Notes/Journal/October.md' (exactly as list_notes shows it)" });
+    let folder = json!({ "type": "string", "description": "Only look inside this folder, e.g. 'TB Notes/Journal'. Leave empty for all notes folders" });
+    let content = json!({ "type": "string", "description": "Note content (Markdown)" });
     json!([
         {
             "name": "list_notes",
-            "title": "메모 목록",
-            "description": "메모 폴더의 하위 폴더와 메모(.md/.txt)를 트리로 보여 줍니다. 각 줄의 경로를 다른 도구에 그대로 쓰면 됩니다.",
+            "title": "List notes",
+            "description": "Shows the subfolders and notes (.md/.txt) in the notes folders as a tree. Use each line's path as-is with the other tools.",
             "inputSchema": { "type": "object", "properties": { "folder": folder } },
             "annotations": { "readOnlyHint": true },
         },
         {
             "name": "read_note",
-            "title": "메모 읽기",
-            "description": "메모 하나의 내용을 읽습니다.",
+            "title": "Read note",
+            "description": "Reads the content of one note.",
             "inputSchema": { "type": "object", "properties": { "path": path }, "required": ["path"] },
             "annotations": { "readOnlyHint": true },
         },
         {
             "name": "search_notes",
-            "title": "메모 검색",
-            "description": "파일 이름과 내용에서 글자를 찾습니다 (대소문자 무시). 맞는 메모의 경로와 해당 줄을 보여 줍니다.",
+            "title": "Search notes",
+            "description": "Finds text in file names and contents (case-insensitive). Shows matching notes' paths and lines.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "query": { "type": "string", "description": "찾을 글자" }, "folder": folder },
+                "properties": { "query": { "type": "string", "description": "Text to find" }, "folder": folder },
                 "required": ["query"],
             },
             "annotations": { "readOnlyHint": true },
         },
         {
             "name": "create_note",
-            "title": "새 메모",
-            "description": "새 메모 파일을 만듭니다. 없는 하위 폴더는 함께 만듭니다. 같은 이름의 파일이 있으면 실패합니다.",
+            "title": "Create note",
+            "description": "Creates a new note file, including any missing subfolders. Fails if a file with the same name exists.",
             "inputSchema": { "type": "object", "properties": { "path": path, "content": content }, "required": ["path"] },
             "annotations": { "readOnlyHint": false, "destructiveHint": false },
         },
         {
             "name": "update_note",
-            "title": "메모 바꾸기",
-            "description": "기존 메모의 내용 전체를 새 내용으로 바꿉니다. 원래 인코딩과 줄 끝(CRLF/LF)은 유지합니다.",
+            "title": "Update note",
+            "description": "Replaces the whole content of an existing note. Keeps its original encoding and line endings (CRLF/LF).",
             "inputSchema": { "type": "object", "properties": { "path": path, "content": content }, "required": ["path", "content"] },
             "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true },
         },
         {
             "name": "append_to_note",
-            "title": "메모에 덧붙이기",
-            "description": "기존 메모의 끝에 내용을 덧붙입니다. 마지막 줄이 줄바꿈으로 끝나지 않으면 줄을 바꾼 뒤 붙입니다.",
+            "title": "Append to note",
+            "description": "Appends content to the end of an existing note, adding a line break first if the last line doesn't end with one.",
             "inputSchema": { "type": "object", "properties": { "path": path, "content": content }, "required": ["path", "content"] },
             "annotations": { "readOnlyHint": false, "destructiveHint": false },
         },
@@ -251,7 +249,7 @@ impl Vault {
             if !canon.is_dir() || roots.iter().any(|r| r.canon == canon) {
                 continue;
             }
-            let base = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "메모".to_owned());
+            let base = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Notes".to_owned());
             let mut name = base.clone();
             let mut n = 2;
             while roots.iter().any(|r| r.name.eq_ignore_ascii_case(&name)) {
@@ -266,17 +264,17 @@ impl Vault {
     /// AI가 준 경로를 메모 폴더 안의 실제 경로로 바꿉니다. 메모 폴더 밖으로 나가는 경로는 거부합니다.
     fn resolve(&self, input: &str) -> Result<Target<'_>, String> {
         if self.roots.is_empty() {
-            return Err("메모 폴더가 없습니다. TB's Notepad에서 메모 폴더를 추가해 주세요.".to_owned());
+            return Err("There are no notes folders. Add one in TB's Notepad first.".to_owned());
         }
         let input = input.trim().replace('\\', "/");
         if input.starts_with('/') || Path::new(&input).has_root() {
-            return Err(format!("절대 경로는 쓸 수 없습니다: {input}"));
+            return Err(format!("Absolute paths are not allowed: {input}"));
         }
         let mut parts: Vec<&str> = Vec::new();
         for part in input.split('/') {
             match part {
                 "" | "." => {}
-                ".." => return Err("'..'은 쓸 수 없습니다. 메모 폴더 안의 경로만 됩니다.".to_owned()),
+                ".." => return Err("'..' is not allowed. Only paths inside the notes folders work.".to_owned()),
                 _ => {
                     check_name(part)?;
                     parts.push(part);
@@ -290,7 +288,7 @@ impl Vault {
                 None if self.roots.len() == 1 => (&self.roots[0], &parts[..]),
                 None => {
                     let names: Vec<&str> = self.roots.iter().map(|r| r.name.as_str()).collect();
-                    return Err(format!("경로는 메모 폴더 이름으로 시작해야 합니다: {}", names.join(", ")));
+                    return Err(format!("Paths must start with a notes folder name: {}", names.join(", ")));
                 }
             };
         let mut path = root.dir.clone();
@@ -299,7 +297,7 @@ impl Vault {
         }
         // 글자로는 안전해도 폴더 안의 링크(정션)가 밖을 가리킬 수 있으므로 실제 위치를 확인합니다.
         if !within(&path, &root.canon) {
-            return Err("메모 폴더 밖을 가리키는 경로입니다.".to_owned());
+            return Err("This path points outside the notes folders.".to_owned());
         }
         Ok(Target { root, path })
     }
@@ -308,7 +306,7 @@ impl Vault {
     fn resolve_note(&self, input: &str) -> Result<Target<'_>, String> {
         let target = self.resolve(input)?;
         if !is_note(&target.path) {
-            return Err(format!("메모 파일(.md, .txt)만 다룰 수 있습니다: {input}"));
+            return Err(format!("Only note files (.md, .txt) are supported: {input}"));
         }
         Ok(target)
     }
@@ -331,12 +329,12 @@ impl Vault {
             Some(folder) => {
                 let target = self.resolve(folder)?;
                 if !target.path.is_dir() {
-                    return Err(format!("폴더가 없습니다: {folder}"));
+                    return Err(format!("No such folder: {folder}"));
                 }
                 Ok(vec![target])
             }
             None if self.roots.is_empty() => {
-                Err("메모 폴더가 없습니다. TB's Notepad에서 메모 폴더를 추가해 주세요.".to_owned())
+                Err("There are no notes folders. Add one in TB's Notepad first.".to_owned())
             }
             None => Ok(self.roots.iter().map(|root| Target { root, path: root.dir.clone() }).collect()),
         }
@@ -355,7 +353,7 @@ impl Vault {
         }
         if count >= MAX_LIST_ENTRIES {
             out.push_str(&format!(
-                "… 항목이 많아 {MAX_LIST_ENTRIES}개까지만 보여 줍니다. folder로 범위를 좁혀 주세요.\n"
+                "… Too many entries; showing the first {MAX_LIST_ENTRIES}. Narrow it down with folder.\n"
             ));
         }
         Ok(out)
@@ -436,7 +434,7 @@ impl Vault {
     fn search_notes(&self, query: &str, folder: Option<&str>) -> Result<String, String> {
         let needle = query.trim().to_lowercase();
         if needle.is_empty() {
-            return Err("찾을 글자(query)가 비어 있습니다.".to_owned());
+            return Err("The search text (query) is empty.".to_owned());
         }
         let mut out = String::new();
         let mut found = 0;
@@ -461,7 +459,7 @@ impl Vault {
                 found += 1;
                 if found > MAX_SEARCH_RESULTS {
                     out.push_str(&format!(
-                        "… {MAX_SEARCH_RESULTS}개까지만 보여 줍니다. 검색어를 더 자세히 써 주세요.\n"
+                        "… Showing the first {MAX_SEARCH_RESULTS} results. Try a more specific query.\n"
                     ));
                     break 'scopes;
                 }
@@ -471,12 +469,12 @@ impl Vault {
                     out.push_str(&format!("  {n}: {text}\n"));
                 }
                 if lines.len() > MAX_SNIPPETS {
-                    out.push_str(&format!("  … 그 밖에 {}줄\n", lines.len() - MAX_SNIPPETS));
+                    out.push_str(&format!("  … {} more lines\n", lines.len() - MAX_SNIPPETS));
                 }
             }
         }
         if found == 0 {
-            return Ok(format!("'{query}'이(가) 들어간 메모가 없습니다."));
+            return Ok(format!("No notes contain '{query}'."));
         }
         Ok(out)
     }
@@ -485,17 +483,15 @@ impl Vault {
         let target = self.resolve_note(input)?;
         let shown = self.display(target.root, &target.path);
         if target.path.exists() {
-            return Err(format!(
-                "이미 있는 파일입니다: {shown}. 내용을 바꾸려면 update_note나 append_to_note를 쓰세요."
-            ));
+            return Err(format!("File already exists: {shown}. Use update_note or append_to_note to change it."));
         }
         if let Some(parent) = target.path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("폴더를 만들 수 없습니다: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("Can't create the folder: {e}"))?;
         }
         let mut doc = Document::new_untitled(0);
         doc.text = normalize(content);
         save(&mut doc, &target.path)?;
-        Ok(format!("만들었습니다: {shown}"))
+        Ok(format!("Created: {shown}"))
     }
 
     fn update_note(&self, input: &str, content: &str) -> Result<String, String> {
@@ -503,7 +499,7 @@ impl Vault {
         let mut doc = open_existing(&target.path, input)?;
         doc.text = normalize(content);
         let note = save(&mut doc, &target.path)?;
-        Ok(format!("내용을 바꿨습니다: {}{note}", self.display(target.root, &target.path)))
+        Ok(format!("Updated: {}{note}", self.display(target.root, &target.path)))
     }
 
     fn append_to_note(&self, input: &str, content: &str) -> Result<String, String> {
@@ -514,14 +510,14 @@ impl Vault {
         }
         doc.text.push_str(&normalize(content));
         let note = save(&mut doc, &target.path)?;
-        Ok(format!("덧붙였습니다: {}{note}", self.display(target.root, &target.path)))
+        Ok(format!("Appended: {}{note}", self.display(target.root, &target.path)))
     }
 }
 
 /// 파일·폴더 이름 하나가 Windows에서 안전한지 (드라이브 문자, 대체 데이터 스트림, 장치 이름 등 차단)
 fn check_name(part: &str) -> Result<(), String> {
     if part.chars().any(|c| c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*')) {
-        return Err(format!("이름에 쓸 수 없는 글자가 있습니다: {part}"));
+        return Err(format!("The name contains characters that aren't allowed: {part}"));
     }
     let stem = part.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
     let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
@@ -529,12 +525,12 @@ fn check_name(part: &str) -> Result<(), String> {
             && (stem.starts_with("COM") || stem.starts_with("LPT"))
             && stem.as_bytes()[3].is_ascii_digit());
     if reserved {
-        return Err(format!("Windows에서 쓸 수 없는 이름입니다: {part}"));
+        return Err(format!("This name isn't allowed on Windows: {part}"));
     }
     // 한 덩어리여야 합니다 (드라이브·루트 등이 섞이지 않게).
     let mut comps = Path::new(part).components();
     if !matches!((comps.next(), comps.next()), (Some(Component::Normal(_)), None)) {
-        return Err(format!("쓸 수 없는 이름입니다: {part}"));
+        return Err(format!("This name isn't allowed: {part}"));
     }
     Ok(())
 }
@@ -561,20 +557,20 @@ fn is_note(path: &Path) -> bool {
 
 fn open_existing(path: &Path, input: &str) -> Result<Document, String> {
     if !path.is_file() {
-        return Err(format!("메모가 없습니다: {input}. list_notes나 search_notes로 경로를 확인하세요."));
+        return Err(format!("No such note: {input}. Check the path with list_notes or search_notes."));
     }
     if std::fs::metadata(path).is_ok_and(|m| m.len() > MAX_NOTE_BYTES) {
-        return Err(format!("파일이 너무 큽니다 ({}MB 넘음): {input}", MAX_NOTE_BYTES / 1024 / 1024));
+        return Err(format!("The file is too large (over {}MB): {input}", MAX_NOTE_BYTES / 1024 / 1024));
     }
-    Document::open(path).map_err(|e| format!("읽을 수 없습니다: {e}"))
+    Document::open(path).map_err(|e| format!("Can't read: {e}"))
 }
 
 /// 앱과 같은 방식(임시 파일에 쓴 뒤 교체, 원래 인코딩·줄 끝 유지)으로 저장합니다.
 /// 원래 인코딩(CP949)으로 쓸 수 없는 글자가 있어 UTF-8로 바꿨으면 그 안내를 돌려줍니다.
 fn save(doc: &mut Document, path: &Path) -> Result<&'static str, String> {
-    let fell_back = doc.save_to(path).map_err(|e| format!("저장할 수 없습니다: {e}"))?;
+    let fell_back = doc.save_to(path).map_err(|e| format!("Can't save: {e}"))?;
     Ok(if fell_back {
-        " (원래 인코딩으로 쓸 수 없는 글자가 있어 UTF-8로 저장했습니다)"
+        " (saved as UTF-8 because some characters can't be written in the original encoding)"
     } else {
         ""
     })
@@ -699,7 +695,7 @@ mod tests {
         assert!(v.create_note("link/y.md", "x").is_err());
         assert!(!outside.join("y.md").exists());
         assert!(!v.list_notes(None).unwrap().contains("x.md"));
-        assert!(v.search_notes("밖", None).unwrap().contains("없습니다"));
+        assert!(v.search_notes("밖", None).unwrap().starts_with("No notes"));
     }
 
     #[test]
@@ -767,7 +763,7 @@ mod tests {
         assert!(v.search_notes("budget", None).unwrap().contains("메모 10.md"), "대소문자 무시");
         assert!(v.search_notes("10월", None).unwrap().contains("10월 회의.md"), "이름으로도 찾음");
         assert!(v.search_notes("예산", Some("회의")).unwrap().lines().count() == 2);
-        assert!(v.search_notes("없는말", None).unwrap().contains("없습니다"));
+        assert!(v.search_notes("없는말", None).unwrap().starts_with("No notes"));
     }
 
     fn server(root: &Path) -> Server {

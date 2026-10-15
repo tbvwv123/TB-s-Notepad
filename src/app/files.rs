@@ -66,7 +66,7 @@ impl NotepadApp {
     }
 
     pub(super) fn new_note_in(&mut self, dir: &Path) {
-        let path = unique_path(dir, "새 메모", "md");
+        let path = unique_path(dir, t!("새 메모"), "md");
         match std::fs::write(&path, "") {
             Ok(()) => {
                 if let Ok(mut doc) = Document::open(&path) {
@@ -79,14 +79,15 @@ impl NotepadApp {
                 self.focus_editor = true;
             }
             Err(err) => {
-                self.dialog = Some(Dialog::Message(format!("메모를 만들 수 없습니다.\n{}\n\n{err}", dir.display())))
+                self.dialog = Some(Dialog::Message(tf!("메모를 만들 수 없습니다.\n{}\n\n{}", dir.display(), err)))
             }
         }
     }
 
     pub(super) fn open_dialog(&mut self) {
-        let mut dlg =
-            rfd::FileDialog::new().add_filter("텍스트 / 마크다운", TEXT_EXTENSIONS).add_filter("모든 파일", &["*"]);
+        let mut dlg = rfd::FileDialog::new()
+            .add_filter(t!("텍스트 / 마크다운"), TEXT_EXTENSIONS)
+            .add_filter(t!("모든 파일"), &["*"]);
         if let Some(dir) = self.doc().dir() {
             dlg = dlg.set_directory(dir);
         }
@@ -116,7 +117,7 @@ impl NotepadApp {
             }
             Err(err) => {
                 self.settings.recent_files.retain(|p| p != path);
-                self.dialog = Some(Dialog::Message(format!("파일을 열 수 없습니다.\n{}\n\n{err}", path.display())));
+                self.dialog = Some(Dialog::Message(tf!("파일을 열 수 없습니다.\n{}\n\n{}", path.display(), err)));
             }
         }
     }
@@ -158,9 +159,9 @@ impl NotepadApp {
                 };
                 let mut dlg = rfd::FileDialog::new()
                     .set_file_name(&default_name)
-                    .add_filter("마크다운", &["md"])
-                    .add_filter("텍스트", &["txt"])
-                    .add_filter("모든 파일", &["*"]);
+                    .add_filter(t!("마크다운"), &["md"])
+                    .add_filter(t!("텍스트"), &["txt"])
+                    .add_filter(t!("모든 파일"), &["*"]);
                 if let Some(dir) = doc.dir().or_else(|| self.settings.roots.first().cloned()) {
                     dlg = dlg.set_directory(dir);
                 }
@@ -192,15 +193,15 @@ impl NotepadApp {
                 if fell_back {
                     self.set_status(
                         ctx,
-                        format!("{name}: 이 인코딩으로 표현할 수 없는 글자가 있어 UTF-8로 저장했습니다"),
+                        tf!("{}: 이 인코딩으로 표현할 수 없는 글자가 있어 UTF-8로 저장했습니다", name),
                     );
                 } else {
-                    self.set_status(ctx, format!("{name} 저장됨"));
+                    self.set_status(ctx, tf!("{} 저장됨", name));
                 }
                 true
             }
             Err(err) => {
-                self.dialog = Some(Dialog::Message(format!("저장하지 못했습니다.\n{}\n\n{err}", path.display())));
+                self.dialog = Some(Dialog::Message(tf!("저장하지 못했습니다.\n{}\n\n{}", path.display(), err)));
                 false
             }
         }
@@ -281,7 +282,7 @@ impl NotepadApp {
                 if let DiskEvent::Reloaded { old_text } = self.docs[i].check_disk() {
                     self.after_reload(ctx, i, &old_text);
                     let name = self.docs[i].title();
-                    self.set_status(ctx, format!("{name}: 밖에서 바뀐 내용을 불러왔습니다"));
+                    self.set_status(ctx, tf!("{}: 밖에서 바뀐 내용을 불러왔습니다", name));
                 }
             }
         }
@@ -331,8 +332,8 @@ impl NotepadApp {
         let Some(path) = dlg.save_file() else { return };
         let html = markdown::to_html(&doc.text, &stem, &self.settings.palette());
         match std::fs::write(&path, html) {
-            Ok(()) => self.set_status(ctx, format!("{} 로 내보냈습니다", path.display())),
-            Err(err) => self.dialog = Some(Dialog::Message(format!("내보내지 못했습니다.\n{err}"))),
+            Ok(()) => self.set_status(ctx, tf!("{} 로 내보냈습니다", path.display())),
+            Err(err) => self.dialog = Some(Dialog::Message(tf!("내보내지 못했습니다.\n{}", err))),
         }
     }
 
@@ -343,10 +344,10 @@ impl NotepadApp {
                 Action::NewNote(dir) => self.new_note_in(&dir),
                 Action::NewQuickNote => self.new_note(),
                 Action::NewFolder(parent) => {
-                    self.dialog = Some(Dialog::NewFolder { parent, name: "새 폴더".into() })
+                    self.dialog = Some(Dialog::NewFolder { parent, name: t!("새 폴더").into() })
                 }
                 Action::AddRoot => {
-                    if let Some(dir) = rfd::FileDialog::new().set_title("메모 폴더 고르기").pick_folder()
+                    if let Some(dir) = rfd::FileDialog::new().set_title(t!("메모 폴더 고르기")).pick_folder()
                         && !self.settings.roots.contains(&dir)
                     {
                         self.settings.roots.push(dir);
@@ -383,7 +384,7 @@ impl NotepadApp {
             dir.join(format!("{clean}.{ext}"))
         };
         if target.exists() {
-            self.set_status(ctx, "같은 이름이 이미 있습니다");
+            self.set_status(ctx, t!("같은 이름이 이미 있습니다"));
             return;
         }
         // 열려 있는 문서는 먼저 저장해 두고 경로를 함께 바꿉니다.
@@ -404,7 +405,7 @@ impl NotepadApp {
                 }
                 self.sidebar.invalidate();
             }
-            Err(err) => self.dialog = Some(Dialog::Message(format!("이름을 바꾸지 못했습니다.\n{err}"))),
+            Err(err) => self.dialog = Some(Dialog::Message(tf!("이름을 바꾸지 못했습니다.\n{}", err))),
         }
     }
 
@@ -421,15 +422,23 @@ impl NotepadApp {
                     self.close_doc(id);
                 }
                 self.sidebar.invalidate();
-                self.set_status(ctx, "휴지통으로 옮겼습니다");
+                self.set_status(ctx, t!("휴지통으로 옮겼습니다"));
             }
-            Err(err) => self.dialog = Some(Dialog::Message(format!("지우지 못했습니다.\n{err}"))),
+            Err(err) => self.dialog = Some(Dialog::Message(tf!("지우지 못했습니다.\n{}", err))),
         }
     }
 }
 
 /// 처음 실행할 때 만드는 안내 메모. samples/환영합니다.md 가 원본입니다 (그 파일을 고치면 여기도 바뀜).
-pub(super) const WELCOME_NOTE: &str = include_str!("../../samples/환영합니다.md");
+/// 처음 실행할 때 만드는 안내 메모 (화면 언어로)
+pub(super) fn welcome_note(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Ko => include_str!("../../samples/welcome/ko.md"),
+        Lang::En => include_str!("../../samples/welcome/en.md"),
+        Lang::Zh => include_str!("../../samples/welcome/zh.md"),
+        Lang::Ja => include_str!("../../samples/welcome/ja.md"),
+    }
+}
 
 /// 안내 메모에 쓰는 예시 그림 (실행 파일에 들어 있음)
 pub(super) const WELCOME_IMAGE: &[u8] = include_bytes!("../../samples/images/welcome.png");
@@ -442,7 +451,7 @@ pub(super) fn write_welcome_note(dir: &Path) -> std::io::Result<()> {
     if !img.exists() {
         std::fs::write(&img, WELCOME_IMAGE)?;
     }
-    std::fs::write(dir.join("시작하기.md"), WELCOME_NOTE)
+    std::fs::write(dir.join(t!("시작하기.md")), welcome_note(crate::i18n::lang()))
 }
 
 /// 문서 첫 줄에서 제목을 뽑습니다 (파일 이름용)
@@ -536,25 +545,33 @@ mod tests {
             quote: Color32::DARK_GRAY,
         };
         let size = |_: &str| Some(egui::vec2(480.0, 200.0));
-        let out = live::layout(&live::LiveInput {
-            text: WELCOME_NOTE,
-            style: &style,
-            active_line: None,
-            base_dir: Some(Path::new("C:/notes")),
-            image_size: &size,
-            max_image_width: 700.0,
-        });
-        assert_eq!(out.job.text, WELCOME_NOTE);
-        let has = |f: fn(&Deco) -> bool| out.decos.iter().any(f);
-        assert!(has(|d| matches!(d, Deco::Image { align: ImgAlign::Center, .. })), "가운데 정렬 그림");
-        assert!(has(|d| matches!(d, Deco::Task { checked: true, .. })));
-        assert!(has(|d| matches!(d, Deco::Task { checked: false, .. })));
-        assert!(has(|d| matches!(d, Deco::Bullet { level: 1, .. })), "하위 목록");
-        assert!(has(|d| matches!(d, Deco::Quote { .. })));
-        assert!(has(|d| matches!(d, Deco::Rule { .. })));
-        assert!(has(|d| matches!(d, Deco::CodeBlock { .. })));
-        assert!(has(|d| matches!(d, Deco::Link { .. })));
-        // 모든 그림 경로는 실행 파일에 넣은 예시 그림 하나뿐
-        assert!(out.image_uris.iter().all(|u| u.ends_with("images/welcome.png")), "{:?}", out.image_uris);
+        for lang in Lang::ALL {
+            let note = welcome_note(lang);
+            let out = live::layout(&live::LiveInput {
+                text: note,
+                style: &style,
+                active_line: None,
+                base_dir: Some(Path::new("C:/notes")),
+                image_size: &size,
+                max_image_width: 700.0,
+            });
+            assert_eq!(out.job.text, note);
+            let has = |f: fn(&Deco) -> bool| out.decos.iter().any(f);
+            assert!(has(|d| matches!(d, Deco::Image { align: ImgAlign::Center, .. })), "{lang:?} 가운데 정렬 그림");
+            assert!(has(|d| matches!(d, Deco::Task { checked: true, .. })), "{lang:?}");
+            assert!(has(|d| matches!(d, Deco::Task { checked: false, .. })), "{lang:?}");
+            assert!(has(|d| matches!(d, Deco::Bullet { level: 1, .. })), "{lang:?} 하위 목록");
+            assert!(has(|d| matches!(d, Deco::Quote { .. })), "{lang:?}");
+            assert!(has(|d| matches!(d, Deco::Rule { .. })), "{lang:?}");
+            assert!(has(|d| matches!(d, Deco::CodeBlock { .. })), "{lang:?}");
+            assert!(has(|d| matches!(d, Deco::Table { .. })), "{lang:?}");
+            assert!(has(|d| matches!(d, Deco::Link { .. })), "{lang:?}");
+            // 모든 그림 경로는 실행 파일에 넣은 예시 그림 하나뿐
+            assert!(out.image_uris.iter().all(|u| u.ends_with("images/welcome.png")), "{:?}", out.image_uris);
+            // 안내 메모 속 "이 메모 안 제목으로 가기" 링크가 실제 제목을 가리키는지
+            let jump = note.split("](#").nth(2).and_then(|s| s.split(')').next()).unwrap();
+            let anchor = crate::links::Anchor::Heading(jump.to_owned());
+            assert!(crate::links::anchor_range(note, &anchor).is_some(), "{lang:?}: #{jump}");
+        }
     }
 }

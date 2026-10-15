@@ -134,7 +134,7 @@ impl NotepadApp {
             Ok(()) => {
                 if let MediaAction::Open(p) = &action {
                     let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    self.set_status(ctx, format!("기본 플레이어로 여는 중: {name}"));
+                    self.set_status(ctx, tf!("기본 플레이어로 여는 중: {}", name));
                 }
                 ctx.request_repaint();
             }
@@ -262,7 +262,7 @@ pub(super) fn audio_card(ui: &mut Ui, v: &DecoView<'_>, r: egui::Rect, path: &Pa
     out.fg.push(Shape::galley(egui::pos2(x1 - time_g.size().x, r.top() + 10.5), time_g, v.muted));
 
     if missing {
-        let g = one_line(ui, "파일을 찾을 수 없습니다", 12.0, v.muted, x1 - x0);
+        let g = one_line(ui, t!("파일을 찾을 수 없습니다"), 12.0, v.muted, x1 - x0);
         out.fg.push(Shape::galley(egui::pos2(x0, r.top() + 32.0), g, v.muted));
         return;
     }
@@ -282,7 +282,7 @@ pub(super) fn audio_card(ui: &mut Ui, v: &DecoView<'_>, r: egui::Rect, path: &Pa
     let vr = egui::Rect::from_x_y_ranges(vol_x0 - 4.0..=vol_x1 + 4.0, y - 8.0..=y + 8.0);
     let vs = ui.interact(vr, id.with("volume"), egui::Sense::click_and_drag());
     let mut shown_volume = volume;
-    if (vs.clicked() || vs.dragged())
+    if (vs.clicked() || vs.dragged_by(egui::PointerButton::Primary))
         && let Some(p) = vs.interact_pointer_pos()
     {
         shown_volume = ((p.x - vol_x0) / (vol_x1 - vol_x0)).clamp(0.0, 1.0);
@@ -297,7 +297,7 @@ pub(super) fn audio_card(ui: &mut Ui, v: &DecoView<'_>, r: egui::Rect, path: &Pa
     out.fg.push(Shape::rect_filled(vdone, 1.5, v.muted));
     if vs.hovered() || vs.dragged() {
         out.fg.push(Shape::circle_filled(egui::pos2(vdone.right(), y), 4.5, v.text));
-        vs.on_hover_text(format!("소리 크기 {}%", (shown_volume * 100.0).round()));
+        vs.on_hover_text(tf!("소리 크기 {}%", (shown_volume * 100.0).round()));
     }
 
     // 재생 막대 (누르거나 끌어서 이동)
@@ -309,12 +309,12 @@ pub(super) fn audio_card(ui: &mut Ui, v: &DecoView<'_>, r: egui::Rect, path: &Pa
         Some(d) if d > Duration::ZERO => (position.as_secs_f32() / d.as_secs_f32()).clamp(0.0, 1.0),
         _ => 0.0,
     };
-    if s.dragged()
+    if s.dragged_by(egui::PointerButton::Primary)
         && let Some(f) = pointer_frac
     {
         frac = f;
     }
-    if (s.clicked() || s.drag_stopped())
+    if (s.clicked() || s.drag_stopped_by(egui::PointerButton::Primary))
         && let Some(f) = pointer_frac
     {
         out.media_action = Some(MediaAction::Seek(path.to_path_buf(), f));
@@ -380,7 +380,7 @@ pub(super) fn video_card(
         Color32::from_black_alpha(140),
     ));
     let label =
-        if missing { format!("{}  ·  파일을 찾을 수 없습니다", file_label(path)) } else { file_label(path) };
+        if missing { tf!("{}  ·  파일을 찾을 수 없습니다", file_label(path)) } else { file_label(path) };
     let g = one_line(ui, &label, 12.5, Color32::WHITE, r.width() - 24.0);
     out.fg.push(Shape::galley(egui::pos2(r.left() + 12.0, strip.center().y - g.size().y / 2.0), g, Color32::WHITE));
 }

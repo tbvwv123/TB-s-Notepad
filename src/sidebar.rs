@@ -156,10 +156,10 @@ impl Sidebar {
         // 검색 칸
         search_box(ui, &mut self.query, k);
         ui.add_space(6.0);
-        if action_row(ui, Icon::Plus, "새 메모", "Ctrl+N", k).clicked() {
+        if action_row(ui, Icon::Plus, t!("새 메모"), "Ctrl+N", k).clicked() {
             actions.push(Action::NewQuickNote);
         }
-        if action_row(ui, Icon::Folder, "폴더 추가", "", k).clicked() {
+        if action_row(ui, Icon::Folder, t!("폴더 추가"), "", k).clicked() {
             actions.push(Action::AddRoot);
         }
         ui.add_space(10.0);
@@ -172,11 +172,11 @@ impl Sidebar {
             }
 
             if !loose.is_empty() {
-                section_label(ui, "열린 문서", k);
+                section_label(ui, t!("열린 문서"), k);
                 for d in loose {
-                    let label = if d.title.is_empty() { "제목 없음".to_owned() } else { d.title.clone() };
+                    let label = if d.title.is_empty() { t!("제목 없음").to_owned() } else { d.title.clone() };
                     let resp = tree_row(ui, 0, RowIcon::Note, &label, d.active, d.dirty, k);
-                    let close = hover_icon(ui, &resp, Icon::Close, "닫기", k);
+                    let close = hover_icon(ui, &resp, Icon::Close, t!("닫기"), k);
                     if close {
                         actions.push(Action::CloseDoc(d.id));
                     } else if resp.clicked() {
@@ -194,7 +194,7 @@ impl Sidebar {
                 self.scroll_to_flash(root, &header);
                 let tip = root.display().to_string();
                 let header = header.on_hover_text(tip);
-                let plus = hover_icon_always(ui, &header, Icon::Plus, "이 폴더에 새 메모", k);
+                let plus = hover_icon_always(ui, &header, Icon::Plus, t!("이 폴더에 새 메모"), k);
                 if plus {
                     actions.push(Action::NewNote(root.clone()));
                 } else if header.clicked() {
@@ -205,31 +205,31 @@ impl Sidebar {
                     }
                 }
                 header.context_menu(|ui| {
-                    if ui.button("새 메모").clicked() {
+                    if ui.button(t!("새 메모")).clicked() {
                         actions.push(Action::NewNote(root.clone()));
                         ui.close();
                     }
-                    if ui.button("새 폴더").clicked() {
+                    if ui.button(t!("새 폴더")).clicked() {
                         actions.push(Action::NewFolder(root.clone()));
                         ui.close();
                     }
-                    if ui.button("탐색기에서 열기").clicked() {
+                    if ui.button(t!("탐색기에서 열기")).clicked() {
                         actions.push(Action::Reveal(root.clone()));
                         ui.close();
                     }
-                    if ui.button("링크 복사").clicked() {
+                    if ui.button(t!("하이퍼링크 복사")).clicked() {
                         actions.push(Action::CopyLink(root.clone()));
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("목록에서 빼기 (파일은 그대로)").clicked() {
+                    if ui.button(t!("목록에서 빼기 (파일은 그대로)")).clicked() {
                         actions.push(Action::RemoveRoot(root.clone()));
                         ui.close();
                     }
                 });
                 if !collapsed {
                     if !root.exists() {
-                        ui.label(RichText::new("    폴더를 찾을 수 없습니다").small().weak());
+                        ui.label(RichText::new(t!("    폴더를 찾을 수 없습니다")).small().weak());
                     } else {
                         self.tree(ui, root, 0, active, image_folder, &mut actions, k);
                     }
@@ -237,7 +237,7 @@ impl Sidebar {
                 ui.add_space(10.0);
             }
             if roots.is_empty() {
-                ui.label(RichText::new("'폴더 추가'로 메모를 모아 둘 폴더를 고르세요.").small().weak());
+                ui.label(RichText::new(t!("'폴더 추가'로 메모를 모아 둘 폴더를 고르세요.")).small().weak());
             }
         });
         actions
@@ -256,7 +256,7 @@ impl Sidebar {
     ) {
         let entries = self.entries(dir, image_folder);
         if entries.is_empty() && depth == 0 {
-            ui.label(RichText::new("    아직 메모가 없습니다").small().weak());
+            ui.label(RichText::new(t!("    아직 메모가 없습니다")).small().weak());
         }
         for e in entries {
             let is_active = active.is_some_and(|a| a == e.path);
@@ -298,7 +298,7 @@ impl Sidebar {
             let resp = tree_row(ui, depth, icon, &e.name, is_active || flashing, false, k);
             self.scroll_to_flash(&e.path, &resp);
             if e.is_dir {
-                let plus = hover_icon(ui, &resp, Icon::Plus, "이 폴더에 새 메모", k);
+                let plus = hover_icon(ui, &resp, Icon::Plus, t!("이 폴더에 새 메모"), k);
                 if plus {
                     self.expanded.insert(e.path.clone());
                     actions.push(Action::NewNote(e.path.clone()));
@@ -317,35 +317,35 @@ impl Sidebar {
             }
             resp.context_menu(|ui| {
                 if e.is_dir {
-                    if ui.button("새 메모").clicked() {
+                    if ui.button(t!("새 메모")).clicked() {
                         self.expanded.insert(e.path.clone());
                         actions.push(Action::NewNote(e.path.clone()));
                         ui.close();
                     }
-                    if ui.button("새 폴더").clicked() {
+                    if ui.button(t!("새 폴더")).clicked() {
                         self.expanded.insert(e.path.clone());
                         actions.push(Action::NewFolder(e.path.clone()));
                         ui.close();
                     }
                     ui.separator();
-                } else if ui.button("열기").clicked() {
+                } else if ui.button(t!("열기")).clicked() {
                     actions.push(Action::Open(e.path.clone()));
                     ui.close();
                 }
-                if ui.button("이름 바꾸기").clicked() {
+                if ui.button(t!("이름 바꾸기")).clicked() {
                     self.start_rename(&e.path);
                     ui.close();
                 }
-                if ui.button("탐색기에서 보기").clicked() {
+                if ui.button(t!("탐색기에서 보기")).clicked() {
                     actions.push(Action::Reveal(e.path.clone()));
                     ui.close();
                 }
-                if ui.button("링크 복사").clicked() {
+                if ui.button(t!("하이퍼링크 복사")).clicked() {
                     actions.push(Action::CopyLink(e.path.clone()));
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("휴지통으로 옮기기").clicked() {
+                if ui.button(t!("휴지통으로 옮기기")).clicked() {
                     actions.push(Action::Delete(e.path.clone()));
                     ui.close();
                 }
@@ -406,14 +406,29 @@ impl Sidebar {
             self.search = Some((q.clone(), Instant::now(), found));
         }
         let results = self.search.as_ref().map(|(_, _, r)| r.clone()).unwrap_or_default();
-        section_label(ui, &format!("검색 결과 {}개", results.len()), k);
+        section_label(ui, &tf!("검색 결과 {}개", results.len()), k);
         for p in results {
             let name = display_name(&p, false);
             let resp = tree_row(ui, 0, RowIcon::Note, &name, active == Some(p.as_path()), false, k);
             let folder = p.parent().map(|d| d.display().to_string()).unwrap_or_default();
-            if resp.on_hover_text(folder).clicked() {
+            let resp = resp.on_hover_text(folder);
+            if resp.clicked() {
                 actions.push(Action::Open(p.clone()));
             }
+            resp.context_menu(|ui| {
+                if ui.button(t!("열기")).clicked() {
+                    actions.push(Action::Open(p.clone()));
+                    ui.close();
+                }
+                if ui.button(t!("하이퍼링크 복사")).clicked() {
+                    actions.push(Action::CopyLink(p.clone()));
+                    ui.close();
+                }
+                if ui.button(t!("탐색기에서 보기")).clicked() {
+                    actions.push(Action::Reveal(p.clone()));
+                    ui.close();
+                }
+            });
         }
     }
 }
@@ -655,7 +670,7 @@ fn search_box(ui: &mut Ui, query: &mut String, k: Colors) {
         ui.add(
             TextEdit::singleline(query)
                 .id(egui::Id::new("sidebar_search"))
-                .hint_text("검색  (Ctrl+P)")
+                .hint_text(t!("검색  (Ctrl+P)"))
                 .frame(egui::Frame::NONE)
                 .desired_width(f32::INFINITY),
         )
@@ -704,7 +719,7 @@ pub fn move_to_trash(path: &Path) -> std::io::Result<()> {
         // SAFETY: op의 포인터들은 이 함수가 끝날 때까지 살아 있습니다.
         let rc = unsafe { SHFileOperationW(&mut op) };
         if rc != 0 || op.fAnyOperationsAborted != 0 {
-            return Err(std::io::Error::other(format!("휴지통으로 옮기지 못했습니다 (코드 {rc})")));
+            return Err(std::io::Error::other(tf!("휴지통으로 옮기지 못했습니다 (코드 {})", rc)));
         }
         Ok(())
     }

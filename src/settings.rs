@@ -43,15 +43,15 @@ impl ThemePreset {
 
     pub fn label(self) -> &'static str {
         match self {
-            ThemePreset::Light => "라이트",
-            ThemePreset::Dark => "다크",
-            ThemePreset::Sepia => "세피아 (종이)",
-            ThemePreset::Nord => "노드",
-            ThemePreset::Dracula => "드라큘라",
-            ThemePreset::SolarizedLight => "솔라라이즈드 라이트",
-            ThemePreset::SolarizedDark => "솔라라이즈드 다크",
-            ThemePreset::Forest => "숲",
-            ThemePreset::Custom => "사용자 지정",
+            ThemePreset::Light => t!("라이트"),
+            ThemePreset::Dark => t!("다크"),
+            ThemePreset::Sepia => t!("세피아 (종이)"),
+            ThemePreset::Nord => t!("노드"),
+            ThemePreset::Dracula => t!("드라큘라"),
+            ThemePreset::SolarizedLight => t!("솔라라이즈드 라이트"),
+            ThemePreset::SolarizedDark => t!("솔라라이즈드 다크"),
+            ThemePreset::Forest => t!("숲"),
+            ThemePreset::Custom => t!("사용자 지정"),
         }
     }
 }
@@ -306,6 +306,8 @@ pub struct Settings {
     pub keep_images_with_doc: bool,
     /// 소리 카드 재생 크기 (0~1)
     pub audio_volume: f32,
+    /// 화면 언어. `None` 이면 Windows 언어를 따름
+    pub language: Option<crate::i18n::Lang>,
 
     pub recent_files: Vec<PathBuf>,
 
@@ -342,6 +344,7 @@ impl Default for Settings {
             image_folder: "images".to_owned(),
             keep_images_with_doc: true,
             audio_volume: 0.8,
+            language: None,
             recent_files: Vec::new(),
             roots: Vec::new(),
             roots_initialized: false,

@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use egui::{FontData, FontDefinitions, FontFamily};
 
+use crate::i18n::Lang;
+
 #[derive(Clone, Debug)]
 pub struct SystemFont {
     pub name: String,
@@ -27,15 +29,58 @@ pub struct FontLibrary {
     loaded: HashMap<PathBuf, &'static [u8]>,
     /// 본문 글꼴에 굵은 글꼴이 없어서 글자를 겹쳐 그려 굵게 보이게 하는지 (가짜 굵게)
     pub fake_bold: bool,
-    /// 글꼴마다 한글이 들어 있는지 (설정 창 안내용, 한 번 확인하면 기억)
+    /// 글꼴마다 그 글자가 들어 있는지 (설정 창 안내용, 한 번 확인하면 기억)
     hangul: HashMap<String, bool>,
 }
 
 /// 본문 글꼴의 굵은 변형을 찾을 때 붙여 보는 이름 (앞에 있는 것부터)
 const BOLD_SUFFIXES: &[&str] = &["Bold", "SemiBold", "Semibold", "DemiBold", "ExtraBold", "Heavy", "Black"];
 
-/// 한글(+ 한자/가나) 대체 글꼴 후보. 메모리를 아끼려고 처음 찾은 하나만 씁니다.
+/// 한글(+ 한자/가나) 대체 글꼴 후보. 메모리를 아끼려고 묶음마다 처음 찾은 하나만 씁니다.
 const CJK_FALLBACKS: &[&str] = &["Malgun Gothic", "Noto Sans CJK KR", "NanumGothic", "Apple SD Gothic Neo"];
+/// 중국어 화면: 간체 한자
+const ZH_FALLBACKS: &[&str] = &["Microsoft YaHei UI", "Microsoft YaHei", "SimSun", "Noto Sans CJK SC"];
+/// 일본어 화면: 가나·일본식 한자
+const JA_FALLBACKS: &[&str] = &["Yu Gothic UI", "Meiryo UI", "Meiryo", "MS Gothic", "Noto Sans CJK JP"];
+
+/// 언어에 맞는 대체 글꼴 묶음 (앞의 것이 먼저). 한글 글꼴은 늘 뒤에 둬서 한국어도 보이게 합니다.
+fn fallback_groups(lang: Lang) -> Vec<&'static [&'static str]> {
+    match lang {
+        Lang::Zh => vec![ZH_FALLBACKS, CJK_FALLBACKS],
+        Lang::Ja => vec![JA_FALLBACKS, CJK_FALLBACKS],
+        Lang::Ko | Lang::En => vec![CJK_FALLBACKS],
+    }
+}
+
+/// 본문 글꼴을 고르지 않았을 때 언어별 기본
+pub fn default_doc_font(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Ko => "Malgun Gothic",
+        Lang::En => "Segoe UI",
+        Lang::Zh => "Microsoft YaHei",
+        Lang::Ja => "Yu Gothic UI",
+    }
+}
+
+/// 화면 글꼴을 고르지 않았을 때 언어별 기본 (`None` 이면 첫 대체 글꼴)
+fn default_ui_font(lang: Lang) -> Option<&'static str> {
+    match lang {
+        Lang::Ko => None,
+        Lang::En => Some("Segoe UI"),
+        Lang::Zh => Some("Microsoft YaHei UI"),
+        Lang::Ja => Some("Yu Gothic UI"),
+    }
+}
+
+/// 설정 창에 보일 기본 글꼴 이름
+pub fn default_font_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Ko => "맑은 고딕",
+        Lang::En => "Segoe UI",
+        Lang::Zh => "微软雅黑",
+        Lang::Ja => "Yu Gothic UI",
+    }
+}
 
 /// ☑ ❝ ▦ 같은 기호용 대체 글꼴
 const SYMBOL_FALLBACKS: &[&str] = &["Segoe UI Symbol"];
@@ -74,15 +119,16 @@ impl FontLibrary {
         Self { fonts, all, loaded: HashMap::new(), fake_bold: false, hangul: HashMap::new() }
     }
 
-    /// 이 글꼴에 한글(가)이 들어 있는지. 읽을 수 없으면 `None`
-    pub fn has_hangul(&mut self, name: &str) -> Option<bool> {
-        if let Some(v) = self.hangul.get(name) {
+    /// 이 글꼴에 `ch` 글자가 들어 있는지 (한글 '가', 가나 'あ' 등). 읽을 수 없으면 `None`
+    pub fn has_char(&mut self, name: &str, ch: char) -> Option<bool> {
+        let key = format!("{name}\u{0}{ch}");
+        if let Some(v) = self.hangul.get(&key) {
             return Some(*v);
         }
         let data = self.data_by_name(name)?;
         let font = skrifa::FontRef::from_index(&data.font, data.index).ok()?;
-        let v = skrifa::MetadataProvider::charmap(&font).map('가').is_some();
-        self.hangul.insert(name.to_owned(), v);
+        let v = skrifa::MetadataProvider::charmap(&font).map(ch).is_some();
+        self.hangul.insert(key, v);
         Some(v)
     }
 
@@ -168,12 +214,15 @@ impl FontLibrary {
         editor_font: Option<&str>,
         ui_font: Option<&str>,
         doc_font: Option<&str>,
+        lang: Lang,
     ) -> FontDefinitions {
         let mut defs = FontDefinitions::default();
 
-        // 대체 글꼴 (한글 등)
+        // 대체 글꼴 (언어에 맞는 한자/가나 → 한글 → 기호)
         let mut fallbacks = Vec::new();
-        for group in [CJK_FALLBACKS, SYMBOL_FALLBACKS] {
+        let mut groups = fallback_groups(lang);
+        groups.push(SYMBOL_FALLBACKS);
+        for group in groups {
             for name in group {
                 if let Some(data) = self.data_by_name(name) {
                     let key = format!("fallback:{name}");
@@ -200,7 +249,7 @@ impl FontLibrary {
 
         // 화면 글꼴: 지정한 글꼴 → (없으면) 대체 글꼴 중 첫 번째(맑은 고딕) → egui 기본
         let mut prop = Vec::new();
-        if let Some(data) = ui_font.and_then(|n| self.data_by_name(n)) {
+        if let Some(data) = ui_font.or(default_ui_font(lang)).and_then(|n| self.data_by_name(n)) {
             defs.font_data.insert("ui".to_owned(), data);
             prop.push("ui".to_owned());
         } else if let Some(first) = fallbacks.first() {
@@ -233,7 +282,7 @@ impl FontLibrary {
         // 문서 본문과 굵은 글씨 (제목, **굵게**)
         // 굵은 글씨는 고른 글꼴의 굵은 변형 → 가변 글꼴이면 굵기 축 → 둘 다 없으면 같은 글꼴을 겹쳐 그려 굵게(가짜 굵게).
         // 예전처럼 다른 글꼴(맑은 고딕 굵게)로 바꾸지 않아서, 제목도 고른 글꼴 모양 그대로 나옵니다.
-        let doc_name = doc_font.unwrap_or("Malgun Gothic").to_owned();
+        let doc_name = doc_font.unwrap_or(default_doc_font(lang)).to_owned();
         let doc_data = self.data_by_name(&doc_name);
         let mut doc = Vec::new();
         if let Some(data) = &doc_data {

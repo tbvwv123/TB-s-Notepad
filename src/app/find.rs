@@ -74,7 +74,7 @@ impl NotepadApp {
         }
         self.refresh_matches();
         if self.find.matches.is_empty() {
-            self.set_status(ctx, format!("'{}'을(를) 찾을 수 없습니다", self.find.query));
+            self.set_status(ctx, tf!("'{}'을(를) 찾을 수 없습니다", self.find.query));
             return;
         }
         let base = self.find.current.clone().unwrap_or_else(|| self.current_selection(ctx));
@@ -124,7 +124,7 @@ impl NotepadApp {
     pub(super) fn replace_all(&mut self, ctx: &egui::Context) {
         let ranges = markdown::find_all(&self.doc().text, &self.find.query, self.find.match_case);
         if ranges.is_empty() {
-            self.set_status(ctx, "바꿀 내용이 없습니다");
+            self.set_status(ctx, t!("바꿀 내용이 없습니다"));
             return;
         }
         let replacement = self.find.replacement.clone();
@@ -139,7 +139,7 @@ impl NotepadApp {
         out.push_str(&doc.text[last..]);
         doc.text = out;
         doc.mark_changed();
-        self.set_status(ctx, format!("{}개를 바꿨습니다", ranges.len()));
+        self.set_status(ctx, tf!("{}개를 바꿨습니다", ranges.len()));
     }
 
     /// 편집기 오른쪽 위에 떠 있는 찾기/바꾸기 카드
@@ -162,7 +162,7 @@ impl NotepadApp {
                     let resp = ui.add(
                         TextEdit::singleline(&mut self.find.query)
                             .desired_width(field_w)
-                            .hint_text("찾기")
+                            .hint_text(t!("찾기"))
                             .margin(Margin::symmetric(8, 5)),
                     );
                     if self.find.focus_query {
@@ -175,16 +175,16 @@ impl NotepadApp {
                     }
                     let count = self.find.matches.len();
                     let info = match (count, current) {
-                        (0, _) if !self.find.query.is_empty() => "없음".to_owned(),
+                        (0, _) if !self.find.query.is_empty() => t!("없음").to_owned(),
                         (0, _) => String::new(),
                         (n, Some(i)) => format!("{}/{n}", i + 1),
-                        (n, None) => format!("{n}개"),
+                        (n, None) => tf!("{}개", n),
                     };
                     ui.add_sized([52.0, 26.0], egui::Label::new(RichText::new(info).small().weak()));
                     if ui_kit::text_button(
                         ui,
                         RichText::new("Aa").size(13.0),
-                        "대소문자 구분",
+                        t!("대소문자 구분"),
                         self.find.match_case,
                         base,
                     )
@@ -192,17 +192,19 @@ impl NotepadApp {
                     {
                         self.find.match_case = !self.find.match_case;
                     }
-                    if ui_kit::icon_button(ui, Icon::ChevronUp, "이전 (Shift+Enter, Shift+F3)", false, base).clicked()
+                    if ui_kit::icon_button(ui, Icon::ChevronUp, t!("이전 (Shift+Enter, Shift+F3)"), false, base)
+                        .clicked()
                     {
                         go = Some(false);
                     }
-                    if ui_kit::icon_button(ui, Icon::ChevronDown, "다음 (Enter, F3)", false, base).clicked() {
+                    if ui_kit::icon_button(ui, Icon::ChevronDown, t!("다음 (Enter, F3)"), false, base).clicked() {
                         go = Some(true);
                     }
-                    if ui_kit::icon_button(ui, Icon::Replace, "바꾸기 (Ctrl+H)", self.find.replace, base).clicked() {
+                    if ui_kit::icon_button(ui, Icon::Replace, t!("바꾸기 (Ctrl+H)"), self.find.replace, base).clicked()
+                    {
                         self.find.replace = !self.find.replace;
                     }
-                    if ui_kit::icon_button(ui, Icon::Close, "닫기 (Esc)", false, base).clicked() {
+                    if ui_kit::icon_button(ui, Icon::Close, t!("닫기 (Esc)"), false, base).clicked() {
                         self.close_find();
                     }
                 });
@@ -212,7 +214,7 @@ impl NotepadApp {
                         let resp = ui.add(
                             TextEdit::singleline(&mut self.find.replacement)
                                 .desired_width(field_w)
-                                .hint_text("바꿀 내용")
+                                .hint_text(t!("바꿀 내용"))
                                 .margin(Margin::symmetric(8, 5)),
                         );
                         if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
@@ -220,10 +222,10 @@ impl NotepadApp {
                             resp.request_focus();
                         }
                         ui.add_space(54.0);
-                        if ui.button("바꾸기").clicked() {
+                        if ui.button(t!("바꾸기")).clicked() {
                             do_replace = true;
                         }
-                        if ui.button("모두 바꾸기").clicked() {
+                        if ui.button(t!("모두 바꾸기")).clicked() {
                             do_replace_all = true;
                         }
                     });
