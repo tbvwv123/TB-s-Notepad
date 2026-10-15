@@ -184,7 +184,7 @@ impl NotepadApp {
             }
         }
         // 사용자가 직접 저장: 다른 프로그램이 파일을 잡고 있어도 백업해 두고 저장
-        match self.docs[index].save_to_allow_in_place(&path) {
+        match self.docs[index].save_to(&path, WhenBlocked::WriteInPlace) {
             Ok(fell_back) => {
                 self.docs[index].highlight_cache = None;
                 self.docs[index].auto_named = false;
@@ -250,7 +250,7 @@ impl NotepadApp {
             return;
         }
         let Some(path) = doc.path.clone() else { return };
-        match doc.save_to(&path) {
+        match doc.save_to(&path, WhenBlocked::Fail) {
             Ok(_) => doc.last_edit = None,
             Err(err) => {
                 // 조용히 넘어가면 사용자는 저장된 줄 압니다: 상태 표시줄에 띄우고, 처음 한 번은 알림 창도
@@ -353,186 +353,9 @@ impl NotepadApp {
             Err(err) => self.dialog = Some(Dialog::Message(tf!("내보내지 못했습니다.\n{}", err))),
         }
     }
-
-    pub(super) fn handle_sidebar(&mut self, ctx: &egui::Context, actions: Vec<Action>) {
-        for a in actions {
-            match a {
-                Action::Open(p) => self.open_path(&p),
-                Action::NewNote(dir) => self.new_note_in(&dir),
-                Action::NewQuickNote => self.new_note(),
-                Action::NewFolder(parent) => {
-                    self.dialog = Some(Dialog::NewFolder { parent, name: t!("새 폴더").into() })
-                }
-                Action::AddRoot => {
-                    if let Some(dir) = rfd::FileDialog::new().set_title(t!("메모 폴더 고르기")).pick_folder()
-                        && !self.settings.roots.contains(&dir)
-                    {
-                        self.settings.roots.push(dir);
-                        self.sidebar.invalidate();
-                    }
-                }
-                Action::RemoveRoot(dir) => self.settings.roots.retain(|r| *r != dir),
-                Action::Rename { from, to_name } => self.rename_path(ctx, &from, &to_name),
-                Action::Delete(p) => self.dialog = Some(Dialog::ConfirmDelete(p)),
-                Action::Reveal(p) => {
-                    let _ = reveal_in_file_manager(&p);
-                }
-                Action::CopyLink(p) => self.copy_path_link(ctx, &p),
-                Action::History(p) => {
-                    self.open_path(&p);
-                    self.open_history(&p);
-                }
-                Action::Move { from, to_dir } => {
-                    if let Some(name) = from.file_name()
-                        && from.parent() != Some(to_dir.as_path())
-                    {
-                        self.move_path(ctx, &from, to_dir.join(name));
-                    }
-                }
-                Action::ActivateDoc(id) => {
-                    if let Some(i) = self.docs.iter().position(|d| d.id == id) {
-                        self.set_active(i);
-                    }
-                }
-                Action::CloseDoc(id) => self.request_close_doc(id),
-            }
-        }
-    }
-
-    pub(super) fn rename_path(&mut self, ctx: &egui::Context, from: &Path, to_name: &str) {
-        let clean = sanitize_file_name(to_name);
-        if clean.is_empty() {
-            return;
-        }
-        let Some(dir) = from.parent() else { return };
-        let target = if from.is_dir() || Path::new(&clean).extension().is_some() {
-            dir.join(&clean)
-        } else {
-            let ext = from.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "md".into());
-            dir.join(format!("{clean}.{ext}"))
-        };
-        self.move_path(ctx, from, target);
-    }
-
-    /// 파일·폴더를 옮기거나 이름을 바꿉니다. 열린 문서의 경로, 버전 기록, 메모 속 링크(그림 포함)가 함께 따라갑니다.
-    pub(super) fn move_path(&mut self, ctx: &egui::Context, from: &Path, target: PathBuf) -> bool {
-        if target == from {
-            return false;
-        }
-        if target.exists() {
-            self.set_status(ctx, t!("같은 이름이 이미 있습니다"));
-            return false;
-        }
-        if target.starts_with(from) {
-            self.set_status(ctx, t!("폴더를 자기 안으로 옮길 수 없습니다"));
-            return false;
-        }
-        // 열려 있는 문서는 먼저 저장해 두고 경로를 함께 바꿉니다.
-        let ids: Vec<u64> =
-            self.docs.iter().filter(|d| d.path.as_deref().is_some_and(|p| p.starts_with(from))).map(|d| d.id).collect();
-        for id in &ids {
-            self.save_if_needed(*id);
-        }
-        if let Err(err) = std::fs::rename(from, &target) {
-            self.dialog = Some(Dialog::Message(tf!("옮기지 못했습니다.\n{}", err)));
-            return false;
-        }
-        for d in &mut self.docs {
-            if let Some(p) = &d.path
-                && let Ok(rest) = p.strip_prefix(from)
-            {
-                d.path = Some(if rest.as_os_str().is_empty() { target.clone() } else { target.join(rest) });
-                d.auto_named = false;
-            }
-        }
-        // 버전 기록도 따라 옮김 (폴더면 안의 파일마다)
-        if target.is_dir() {
-            for_each_file(&target, &mut |file| {
-                if let Ok(rest) = file.strip_prefix(&target) {
-                    crate::history::moved(&from.join(rest), file);
-                }
-            });
-        } else {
-            crate::history::moved(from, &target);
-        }
-        let (fixed, failed) = self.update_links_after_move(from, &target);
-        self.sidebar.invalidate();
-        let roots = self.settings.roots.clone();
-        self.sidebar.reveal(&target, &roots);
-        if !failed.is_empty() {
-            let list: Vec<String> = failed.iter().map(|p| format!("· {}", p.display())).collect();
-            self.dialog = Some(Dialog::Message(tf!(
-                "옮겼지만 이 메모들의 링크를 고쳐 저장하지 못했습니다:\n\n{}",
-                list.join("\n")
-            )));
-        } else if fixed > 0 {
-            self.set_status(ctx, tf!("옮겼습니다 · 링크를 고친 메모 {}개", fixed));
-        }
-        true
-    }
-
-    /// 옮긴 뒤 메모 폴더의 모든 메모에서 링크를 고칩니다. (고친 메모 수, 고쳤지만 저장하지 못한 메모)
-    fn update_links_after_move(&mut self, from: &Path, to: &Path) -> (usize, Vec<PathBuf>) {
-        let mut files = Vec::new();
-        for root in &self.settings.roots {
-            sidebar::walk_tree(root, &self.settings.image_folder, 0, &mut |p, is_dir| {
-                if !is_dir && is_markdown_path(p) {
-                    files.push(p.to_path_buf());
-                }
-            });
-        }
-        let mut fixed = 0;
-        let mut failed = Vec::new();
-        for file in files {
-            let old_file = match file.strip_prefix(to) {
-                Ok(rest) if rest.as_os_str().is_empty() => from.to_path_buf(),
-                Ok(rest) => from.join(rest),
-                Err(_) => file.clone(),
-            };
-            let (Some(old_dir), Some(new_dir)) = (old_file.parent(), file.parent()) else { continue };
-            if let Some(doc) = self.docs.iter_mut().find(|d| d.path.as_deref() == Some(file.as_path())) {
-                if let Some(text) = links::rebase_links(&doc.text, old_dir, new_dir, from, to) {
-                    doc.text = text;
-                    doc.mark_changed();
-                    fixed += 1;
-                }
-                continue;
-            }
-            let Ok(mut doc) = Document::open(&file) else { continue };
-            if let Some(text) = links::rebase_links(&doc.text, old_dir, new_dir, from, to) {
-                doc.text = text;
-                if doc.save_to(&file).is_ok() {
-                    fixed += 1;
-                } else {
-                    failed.push(file);
-                }
-            }
-        }
-        (fixed, failed)
-    }
-
-    pub(super) fn delete_path(&mut self, ctx: &egui::Context, path: &Path) {
-        match sidebar::move_to_trash(path) {
-            Ok(()) => {
-                let ids: Vec<u64> = self
-                    .docs
-                    .iter()
-                    .filter(|d| d.path.as_deref().is_some_and(|p| p.starts_with(path)))
-                    .map(|d| d.id)
-                    .collect();
-                for id in ids {
-                    self.close_doc(id);
-                }
-                self.sidebar.invalidate();
-                self.set_status(ctx, t!("휴지통으로 옮겼습니다"));
-            }
-            Err(err) => self.dialog = Some(Dialog::Message(tf!("지우지 못했습니다.\n{}", err))),
-        }
-    }
 }
 
-/// 처음 실행할 때 만드는 안내 메모. samples/환영합니다.md 가 원본입니다 (그 파일을 고치면 여기도 바뀜).
-/// 처음 실행할 때 만드는 안내 메모 (화면 언어로)
+/// 처음 실행할 때 만드는 안내 메모 (화면 언어로). 원본은 samples/welcome/<언어>.md 입니다.
 pub(super) fn welcome_note(lang: Lang) -> &'static str {
     match lang {
         Lang::Ko => include_str!("../../samples/welcome/ko.md"),
@@ -617,19 +440,6 @@ pub(super) fn reveal_in_file_manager(path: &Path) -> std::io::Result<()> {
         return std::process::Command::new("explorer").arg(arg).spawn().map(|_| ());
     }
     open_in_file_manager(if path.is_dir() { path } else { path.parent().unwrap_or(path) })
-}
-
-/// 폴더 안의 모든 파일 (하위 폴더 포함)
-fn for_each_file(dir: &Path, f: &mut dyn FnMut(&Path)) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        match entry.file_type() {
-            Ok(t) if t.is_dir() => for_each_file(&path, f),
-            Ok(t) if t.is_file() => f(&path),
-            _ => {}
-        }
-    }
 }
 
 #[cfg(test)]

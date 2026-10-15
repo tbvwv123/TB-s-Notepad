@@ -479,7 +479,7 @@ fn search_notes(roots: &[PathBuf], query: &str) -> Vec<PathBuf> {
                 by_name.push(p.to_path_buf());
             } else if std::fs::metadata(p).is_ok_and(|m| m.len() < 512 * 1024)
                 // 열 때와 똑같이 인코딩을 알아내 읽음 (CP949 · UTF-16 메모도 찾도록)
-                && std::fs::read(p).is_ok_and(|b| crate::document::decode(&b).0.to_lowercase().contains(query))
+                && std::fs::read(p).is_ok_and(|b| crate::encoding::decode(&b).0.to_lowercase().contains(query))
             {
                 by_content.push(p.to_path_buf());
             }

@@ -14,6 +14,7 @@ use std::path::{Component, Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::document::Document;
+use crate::safe_write::WhenBlocked;
 use crate::settings::Settings;
 
 /// 지원하는 MCP 버전 (새 것부터). 클라이언트가 이 중 하나를 요청하면 그대로 씁니다.
@@ -568,7 +569,7 @@ fn open_existing(path: &Path, input: &str) -> Result<Document, String> {
 /// 앱과 같은 방식(임시 파일에 쓴 뒤 교체, 원래 인코딩·줄 끝 유지)으로 저장합니다.
 /// 원래 인코딩(CP949)으로 쓸 수 없는 글자가 있어 UTF-8로 바꿨으면 그 안내를 돌려줍니다.
 fn save(doc: &mut Document, path: &Path) -> Result<&'static str, String> {
-    let fell_back = doc.save_to(path).map_err(|e| format!("Can't save: {e}"))?;
+    let fell_back = doc.save_to(path, WhenBlocked::Fail).map_err(|e| format!("Can't save: {e}"))?;
     Ok(if fell_back {
         " (saved as UTF-8 because some characters can't be written in the original encoding)"
     } else {
@@ -594,7 +595,8 @@ fn snippet(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::{LineEnding, TextEncoding};
+    use crate::document::LineEnding;
+    use crate::encoding::TextEncoding;
 
     /// 테스트마다 따로 쓰는 빈 메모 폴더
     fn temp_root(name: &str) -> PathBuf {

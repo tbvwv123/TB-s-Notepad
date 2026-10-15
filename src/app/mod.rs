@@ -6,6 +6,7 @@ mod decorations;
 mod dialogs;
 mod edit_menu;
 mod editor;
+mod file_ops;
 mod files;
 mod find;
 mod history_ui;
@@ -29,12 +30,14 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::document::{DiskEvent, DiskStamp, Document, LineEnding, TextEncoding, remap_char_index};
+use crate::document::{DiskEvent, DiskStamp, Document, LineEnding, remap_char_index};
+use crate::encoding::TextEncoding;
 use crate::fonts::{FontLibrary, bold_family, doc_family, editor_family};
 use crate::i18n::Lang;
 use crate::links;
 use crate::live::{self, Deco, ImgAlign, LiveStyle};
 use crate::markdown::{self, HighlightStyle, MdAction};
+use crate::safe_write::WhenBlocked;
 use crate::settings::{Palette, Settings, ThemePreset, ViewMode, c, mix};
 use crate::sidebar::{self, Action, LooseDoc, Sidebar};
 use crate::ui_kit::{self, Icon};

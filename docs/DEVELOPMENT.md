@@ -89,7 +89,8 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/app/mod.rs` | App state and startup, panel layout, applying theme/fonts/language, session saving |
 | `src/app/editor.rs` | The editor: layout (document view / source view), cursor handling around images, find highlights, line numbers, fake bold |
 | `src/app/decorations.rs` | Document-view painting: bullets, checkboxes, quote bars, tables, image selection and resize handle, links |
-| `src/app/files.rs` | Open/close/save, autosave, reloading files changed outside, sidebar file actions, the guide note |
+| `src/app/files.rs` | Open/close/save, autosave (with failure notice and retry), reloading files changed outside, the guide note |
+| `src/app/file_ops.rs` | Sidebar file actions: rename, move (links and version history follow), delete |
 | `src/app/images.rs` | Inserting/pasting images, audio, video and file links; image size/position/delete; typing next to images |
 | `src/app/edit_menu.rs` | Editor right-click menu (cut, copy, paste, select all, copy hyperlink, make link, insert note link), keeping the selection on right-click |
 | `src/app/slash.rs` | The `/` command list: command table, filtering (incl. Hangul initials), open/close/keys, running commands |
@@ -109,7 +110,9 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/links.rs` | Parsing note links (path · `#L12` line · `#heading`), heading slugs, relative paths, relativizing pasted links |
 | `src/live.rs` | Document-view layout: hiding symbols, applying styles, decoration info for bullets, checkboxes, tables, images… |
 | `src/sidebar.rs` | Folder tree, search, rename, Recycle Bin delete, default notes folder |
-| `src/document.rs` | Document state, encoding detection (chardetng)/conversion, safe saving (temp file → replace; if replacing is blocked, manual saves write in place behind a backup while autosave leaves the file alone and retries) |
+| `src/document.rs` | Document state, loading/saving, noticing changes made outside the app |
+| `src/encoding.rs` | Text encodings: BOM / UTF-8 / legacy detection (chardetng) and conversion |
+| `src/safe_write.rs` | Safe file replacement (temp file → replace; if replacing is blocked, manual saves write in place behind a backup while autosave leaves the file alone and retries) |
 | `src/markdown.rs` | Source-view highlighting, HTML export, toolbar actions, find |
 | `src/settings.rs` | Settings values, theme palettes and global style |
 | `src/fonts.rs` | System font list, body/bold/code font families, bold variant lookup, variable-font weight, fake bold, baseline alignment |
