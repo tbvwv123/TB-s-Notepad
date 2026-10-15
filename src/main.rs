@@ -54,7 +54,7 @@ fn main() -> eframe::Result {
             .with_inner_size([1000.0, 720.0])
             .with_min_inner_size([360.0, 240.0])
             .with_drag_and_drop(true)
-            .with_icon(make_icon()),
+            .with_icon(app_icon()),
         persistence_path: Some(data_dir().join("app.ron")),
         ..Default::default()
     };
@@ -62,41 +62,9 @@ fn main() -> eframe::Result {
     eframe::run_native("TB's Notepad", options, Box::new(|cc| Ok(Box::new(app::NotepadApp::new(cc, files)))))
 }
 
-/// 코드로 그린 창 아이콘: 둥근 메모지 + 줄 + 연필 색 띠
-fn make_icon() -> egui::IconData {
-    const N: usize = 64;
-    let mut rgba = vec![0u8; N * N * 4];
-    let inside_rounded = |x: f32, y: f32, x0: f32, y0: f32, x1: f32, y1: f32, r: f32| {
-        let cx = x.clamp(x0 + r, x1 - r);
-        let cy = y.clamp(y0 + r, y1 - r);
-        let (dx, dy) = (x - cx, y - cy);
-        x >= x0 && x <= x1 && y >= y0 && y <= y1 && dx * dx + dy * dy <= r * r
-    };
-    for py in 0..N {
-        for px in 0..N {
-            let (x, y) = (px as f32 + 0.5, py as f32 + 0.5);
-            let mut col: Option<[u8; 4]> = None;
-            if inside_rounded(x, y, 8.0, 4.0, 56.0, 60.0, 8.0) {
-                col = Some([250, 248, 240, 255]);
-                // 윗부분 띠
-                if y < 16.0 {
-                    col = Some([47, 111, 235, 255]);
-                }
-                // 줄
-                for line_y in [26.0, 35.0, 44.0] {
-                    if (y - line_y).abs() < 1.6 && (16.0..=48.0).contains(&x) {
-                        col = Some([150, 160, 175, 255]);
-                    }
-                }
-                if (y - 53.0).abs() < 1.6 && (16.0..=34.0).contains(&x) {
-                    col = Some([150, 160, 175, 255]);
-                }
-            }
-            if let Some(c) = col {
-                let i = (py * N + px) * 4;
-                rgba[i..i + 4].copy_from_slice(&c);
-            }
-        }
-    }
-    egui::IconData { rgba, width: N as u32, height: N as u32 }
+/// 창 아이콘: assets/logo.png (scripts/make-logo.py 로 만든 로고, 실행 파일에 들어 있음)
+fn app_icon() -> egui::IconData {
+    let img = image::load_from_memory(include_bytes!("../assets/logo.png")).expect("로고 PNG").into_rgba8();
+    let (width, height) = img.dimensions();
+    egui::IconData { rgba: img.into_raw(), width, height }
 }

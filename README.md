@@ -1,3 +1,5 @@
+<img src="assets/logo.png" width="96" alt="TB's Notepad 로고">
+
 # TB's Notepad
 
 Rust + [egui](https://github.com/emilk/egui)로 만든 **가볍고 쉬운 메모장**입니다.
@@ -146,6 +148,8 @@ rustup default stable-x86_64-pc-windows-gnu
 winget install BrechtSanders.WinLibs.POSIX.MSVCRT
 ```
 
+로고는 `python scripts/make-logo.py`로 다시 만들 수 있습니다(`assets/logo.png`, `assets/logo.ico`). 실행 파일 아이콘은 `build.rs`가 windres로 `assets/app.rc`를 넣습니다.
+
 참고: 폴더 이름의 작은따옴표(`TB's`)가 MinGW 링커를 깨뜨리기 때문에 `.cargo/config.toml`에서 빌드 결과물 위치를 `%LOCALAPPDATA%\tb-notepad\target`으로 옮겨 두었습니다.
 
 설정과 세션은 `%APPDATA%\tb-notepad\data\app.ron`에 저장됩니다.
@@ -156,7 +160,9 @@ winget install BrechtSanders.WinLibs.POSIX.MSVCRT
 
 | 파일 | 역할 |
 | --- | --- |
-| `src/main.rs` | 진입점, 창 설정, 아이콘, 저장 폴더 결정 |
+| `src/main.rs` | 진입점, 창 설정, 창 아이콘(`assets/logo.png`), 저장 폴더 결정 |
+| `build.rs` | 실행 파일에 아이콘·파일 정보 넣기 (`assets/app.rc`, windres) |
+| `scripts/make-logo.py` | 로고 만들기: 검정 타일 + 흰 TB + 빨간 커서 (`assets/`) |
 | `src/app/mod.rs` | 앱 상태와 초기화, 화면 배치(패널 순서), 테마·글꼴 적용, 세션 저장 |
 | `src/app/editor.rs` | 본문 편집기: 글자 배치(문서 모드/원본 보기), 그림 줄 커서 처리, 찾은 위치·줄 번호 |
 | `src/app/decorations.rs` | 문서 모드 꾸밈 그리기: 목록 점, 체크박스, 인용 막대, 그림 선택·크기 손잡이, 링크 |
