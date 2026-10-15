@@ -52,6 +52,8 @@ const EDITOR_MARGIN: Margin = Margin { left: 18, right: 18, top: 22, bottom: 60 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico"];
 /// 입력을 멈추고 이만큼 지나면 자동 저장
 const AUTOSAVE_DELAY: f32 = 0.8;
+/// 자동 저장이 실패했을 때 다시 시도하기까지
+const SAVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 /// 열린 문서의 파일이 밖에서 바뀌었는지 이 간격(초)으로 확인 (창이 포커스를 얻을 때도 바로 확인)
 const DISK_CHECK_INTERVAL: f64 = 2.0;
 

@@ -388,14 +388,21 @@ impl NotepadApp {
                     .small()
                     .weak(),
             );
+            if let Some((err, _)) = &doc.save_error {
+                let color = ui.visuals().error_fg_color;
+                ui.label(RichText::new(t!("저장 실패 (다시 시도 중)")).small().color(color)).on_hover_text(err);
+            }
             let save_state = match (doc.path.is_some(), doc.dirty) {
                 _ if doc.conflict => t!("자동 저장 멈춤 (파일이 밖에서 바뀜)"),
+                _ if doc.save_error.is_some() => "",
                 (true, false) => t!("저장됨"),
                 (true, true) if autosave => t!("저장 중…"),
                 (true, true) => t!("저장 안 됨"),
                 (false, _) => t!("파일로 저장 안 됨"),
             };
-            ui.label(RichText::new(save_state).small().weak());
+            if !save_state.is_empty() {
+                ui.label(RichText::new(save_state).small().weak());
+            }
             if !doc.is_markdown() {
                 ui.label(RichText::new(t!("일반 텍스트")).small().weak());
             }

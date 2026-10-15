@@ -121,7 +121,7 @@ Drag notes and folders in the sidebar to move them — images and links are fixe
 > The exe isn't code-signed, so Windows may show "Windows protected your PC" the first time. Click **More info › Run anyway**.
 
 - Drag `.md` files onto the window to open them, or set TB's Notepad as the "Open with" app in Explorer.
-- `.txt` files open as plain text and are saved back with their original encoding (UTF-8, ANSI…) and line endings.
+- `.txt` files open as plain text and are saved back with their original encoding (UTF-8, UTF-16, and legacy ones like CP949, Shift-JIS, GBK, Big5 and Windows-1252, detected automatically) and line endings.
 - Put a `portable.txt` file next to the exe for **portable mode**: settings are kept next to the exe.
 
 ## Syntax

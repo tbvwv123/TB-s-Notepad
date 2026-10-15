@@ -69,6 +69,13 @@ Rows that need height, like images and tables, reserve it through the line heigh
 
 Pushing a version tag (`git tag -a v0.3.0 -m ... && git push origin v0.3.0`) runs `.github/workflows/release.yml`:
 it builds `TB-Notepad.exe` on GitHub Actions and attaches it to that release, creating a draft release if there isn't one yet.
+While the repository is public it also records a build provenance attestation, so anyone can check that a downloaded exe
+was built by this workflow from this source:
+
+```
+gh attestation verify TB-Notepad.exe -R tbvwv123/TB-s-Notepad
+```
+
 Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/ci.yml` runs fmt, clippy, tests and the translation check on every push.
 
 ## Code layout
@@ -102,7 +109,7 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/links.rs` | Parsing note links (path · `#L12` line · `#heading`), heading slugs, relative paths, relativizing pasted links |
 | `src/live.rs` | Document-view layout: hiding symbols, applying styles, decoration info for bullets, checkboxes, tables, images… |
 | `src/sidebar.rs` | Folder tree, search, rename, Recycle Bin delete, default notes folder |
-| `src/document.rs` | Document state, encoding detection/conversion, safe saving (temp file → replace) |
+| `src/document.rs` | Document state, encoding detection (chardetng)/conversion, safe saving (temp file → replace; if replacing is blocked, write in place behind a backup) |
 | `src/markdown.rs` | Source-view highlighting, HTML export, toolbar actions, find |
 | `src/settings.rs` | Settings values, theme palettes and global style |
 | `src/fonts.rs` | System font list, body/bold/code font families, bold variant lookup, variable-font weight, fake bold, baseline alignment |

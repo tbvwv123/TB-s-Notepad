@@ -165,13 +165,24 @@ pub fn link_dest(path: &Path, anchor: Option<&str>) -> String {
 
 /// 글 속 `[..](주소)` · `![..](주소)` 의 주소마다 `f` 를 불러, `Some(새 주소)` 면 바꿉니다.
 /// 하나도 안 바뀌면 `None`. 주소 뒤의 제목(`"width=50%"`)은 그대로 둡니다.
+/// 코드 블록(```)과 `코드` 안의 글은 링크가 아니라 예시이므로 건드리지 않습니다.
 fn map_link_dests(text: &str, mut f: impl FnMut(&str) -> Option<String>) -> Option<String> {
+    let code = if text.contains('`') || text.contains("~~~") || text.contains("\n    ") {
+        code_ranges(text)
+    } else {
+        Vec::new()
+    };
+    let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
     let mut out = String::with_capacity(text.len());
     let mut changed = false;
     let mut rest = text;
     while let Some(i) = rest.find("](") {
+        let at = text.len() - rest.len() + i;
         out.push_str(&rest[..i + 2]);
         rest = &rest[i + 2..];
+        if in_code(at) {
+            continue;
+        }
         let (raw, after) = if rest.starts_with('<') {
             match rest.find('>') {
                 Some(e) => (&rest[..=e], &rest[e + 1..]),
@@ -192,6 +203,19 @@ fn map_link_dests(text: &str, mut f: impl FnMut(&str) -> Option<String>) -> Opti
     }
     out.push_str(rest);
     changed.then_some(out)
+}
+
+/// 코드 블록과 `코드` 가 차지하는 바이트 범위
+fn code_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    use pulldown_cmark::{Event, Options, Parser, Tag};
+    let opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    Parser::new_ext(text, opts)
+        .into_offset_iter()
+        .filter_map(|(ev, range)| match ev {
+            Event::Code(_) | Event::Start(Tag::CodeBlock(_)) => Some(range),
+            _ => None,
+        })
+        .collect()
 }
 
 /// 주소 원문에서 `#` 뒤의 위치 (줄·제목)
@@ -296,6 +320,13 @@ mod tests {
         assert_eq!(anchor_range(text, &Anchor::Heading("결정-사항".into())), Some(r));
         assert_eq!(anchor_range(text, &Anchor::Heading("코드 속 주석".into())), None);
         assert_eq!(slug("  Hello, World — 안녕! "), "hello-world-안녕");
+    }
+
+    #[test]
+    fn code_is_left_alone() {
+        let text = "[a](x.md) `[b](x.md)`\n\n```\n[c](x.md)\n```\n\n~~~md\n[d](x.md)\n~~~\n\n[e](x.md)";
+        let out = map_link_dests(text, |raw| Some(raw.replace("x.md", "y.md"))).unwrap();
+        assert_eq!(out, "[a](y.md) `[b](x.md)`\n\n```\n[c](x.md)\n```\n\n~~~md\n[d](x.md)\n~~~\n\n[e](y.md)");
     }
 
     #[test]

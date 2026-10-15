@@ -66,6 +66,13 @@ winit보다 먼저 키 입력을 보고, "텍스트는 없고 그림/파일이 �
 
 버전 태그를 올리면 (`git tag -a v0.3.0 -m ... && git push origin v0.3.0`) `.github/workflows/release.yml` 이
 GitHub Actions 에서 `TB-Notepad.exe` 를 빌드해 그 릴리스에 붙입니다. 릴리스가 아직 없으면 초안으로 만들어 둡니다.
+저장소가 공개 상태면 빌드 출처 증명(attestation)도 남기므로, 받은 exe 가 이 소스로 이 워크플로에서 빌드된 것인지
+누구나 확인할 수 있습니다:
+
+```
+gh attestation verify TB-Notepad.exe -R tbvwv123/TB-s-Notepad
+```
+
 먼저 `Cargo.toml` 과 `assets/app.rc` 의 버전을 올리세요. `.github/workflows/ci.yml` 은 푸시할 때마다 fmt · clippy · 테스트 · 번역 확인을 돌립니다.
 
 ## 코드 구조
@@ -99,7 +106,7 @@ GitHub Actions 에서 `TB-Notepad.exe` 를 빌드해 그 릴리스에 붙입니�
 | `src/links.rs` | 메모 사이 링크 풀기(경로 · `#L12` 줄 · `#제목`), 제목 비교용 slug, 상대 경로 만들기, 붙여넣은 링크를 상대 경로로 |
 | `src/live.rs` | 문서 모드 배치: 기호 숨기기, 서식 적용, 목록 점·체크박스·표·그림 등 꾸밈 정보 |
 | `src/sidebar.rs` | 폴더 트리, 검색, 이름 바꾸기, 휴지통 삭제, 기본 메모 폴더 |
-| `src/document.rs` | 문서 상태, 인코딩 감지/변환, 안전한 저장(임시 파일 → 교체) |
+| `src/document.rs` | 문서 상태, 인코딩 감지(chardetng)/변환, 안전한 저장(임시 파일 → 교체, 교체가 막히면 백업해 두고 제자리 쓰기) |
 | `src/markdown.rs` | 원본 보기 문법 강조, HTML 내보내기, 서식 도구 동작, 찾기 |
 | `src/settings.rs` | 설정 값, 테마 팔레트와 전역 스타일 |
 | `src/fonts.rs` | 시스템 글꼴 목록, 본문/굵게/코드 글꼴 묶음, 굵은 변형 찾기·가변 글꼴 굵기·가짜 굵게, 한글·영문 기준선 보정 |

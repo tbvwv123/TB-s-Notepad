@@ -22,7 +22,7 @@ Everyone works only with their own notes on their own PC.
 - Paths start with the notes folder name, like `TB Notes/Journal/October.md` (with a single notes folder, the name can be left out).
 - Nothing outside the notes folders is reachable: `..`, absolute paths, drive letters and links (junctions) pointing outside are all rejected.
 - Only `.md` and `.txt` files. There are no delete or rename tools.
-- Saving works like the app: write to a temp file, then replace, keeping the original encoding (UTF-8, UTF-16, CP949…) and line endings (CRLF/LF).
+- Saving works like the app: write to a temp file, then replace, keeping the original encoding (UTF-8, UTF-16, CP949, Shift-JIS…) and line endings (CRLF/LF).
 - The settings location rules (`TB_NOTEPAD_DATA`, portable mode) match the app. If you use it portably, register that exe's path.
 
 ## Connect to Claude Desktop

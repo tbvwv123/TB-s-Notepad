@@ -239,16 +239,30 @@ impl NotepadApp {
         {
             let target = unique_path(dir, &title, "md");
             if std::fs::rename(&path, &target).is_ok() {
+                crate::history::moved(&path, &target);
                 doc.path = Some(target);
                 self.sidebar.invalidate();
             }
         }
         let doc = &mut self.docs[i];
-        if doc.dirty
-            && let Some(path) = doc.path.clone()
-            && doc.save_to(&path).is_ok()
-        {
-            doc.last_edit = None;
+        if !doc.dirty {
+            return;
+        }
+        let Some(path) = doc.path.clone() else { return };
+        match doc.save_to(&path) {
+            Ok(_) => doc.last_edit = None,
+            Err(err) => {
+                // 조용히 넘어가면 사용자는 저장된 줄 압니다: 상태 표시줄에 띄우고, 처음 한 번은 알림 창도
+                let first = doc.save_error.is_none();
+                doc.save_error = Some((err.to_string(), std::time::Instant::now()));
+                if first && self.dialog.is_none() {
+                    self.dialog = Some(Dialog::Message(tf!(
+                        "자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n\n{}\n{}",
+                        path.display(),
+                        err
+                    )));
+                }
+            }
         }
     }
 
@@ -261,6 +275,8 @@ impl NotepadApp {
             .iter()
             .filter(|d| d.dirty && d.path.is_some())
             .filter(|d| d.last_edit.is_none_or(|t| t.elapsed().as_secs_f32() >= AUTOSAVE_DELAY))
+            // 실패했으면 잠시 쉬었다 다시 (매 프레임 디스크를 두드리지 않게)
+            .filter(|d| d.save_error.as_ref().is_none_or(|(_, t)| t.elapsed() >= SAVE_RETRY_DELAY))
             .map(|d| d.id)
             .collect();
         for id in due {
@@ -428,21 +444,34 @@ impl NotepadApp {
                 d.auto_named = false;
             }
         }
-        if target.is_file() {
+        // 버전 기록도 따라 옮김 (폴더면 안의 파일마다)
+        if target.is_dir() {
+            for_each_file(&target, &mut |file| {
+                if let Ok(rest) = file.strip_prefix(&target) {
+                    crate::history::moved(&from.join(rest), file);
+                }
+            });
+        } else {
             crate::history::moved(from, &target);
         }
-        let fixed = self.update_links_after_move(from, &target);
+        let (fixed, failed) = self.update_links_after_move(from, &target);
         self.sidebar.invalidate();
         let roots = self.settings.roots.clone();
         self.sidebar.reveal(&target, &roots);
-        if fixed > 0 {
+        if !failed.is_empty() {
+            let list: Vec<String> = failed.iter().map(|p| format!("· {}", p.display())).collect();
+            self.dialog = Some(Dialog::Message(tf!(
+                "옮겼지만 이 메모들의 링크를 고쳐 저장하지 못했습니다:\n\n{}",
+                list.join("\n")
+            )));
+        } else if fixed > 0 {
             self.set_status(ctx, tf!("옮겼습니다 · 링크를 고친 메모 {}개", fixed));
         }
         true
     }
 
-    /// 옮긴 뒤 메모 폴더의 모든 메모에서 링크를 고칩니다. 고친 메모 수를 돌려줍니다.
-    fn update_links_after_move(&mut self, from: &Path, to: &Path) -> usize {
+    /// 옮긴 뒤 메모 폴더의 모든 메모에서 링크를 고칩니다. (고친 메모 수, 고쳤지만 저장하지 못한 메모)
+    fn update_links_after_move(&mut self, from: &Path, to: &Path) -> (usize, Vec<PathBuf>) {
         let mut files = Vec::new();
         for root in &self.settings.roots {
             sidebar::walk_tree(root, &self.settings.image_folder, 0, &mut |p, is_dir| {
@@ -452,6 +481,7 @@ impl NotepadApp {
             });
         }
         let mut fixed = 0;
+        let mut failed = Vec::new();
         for file in files {
             let old_file = match file.strip_prefix(to) {
                 Ok(rest) if rest.as_os_str().is_empty() => from.to_path_buf(),
@@ -472,10 +502,12 @@ impl NotepadApp {
                 doc.text = text;
                 if doc.save_to(&file).is_ok() {
                     fixed += 1;
+                } else {
+                    failed.push(file);
                 }
             }
         }
-        fixed
+        (fixed, failed)
     }
 
     pub(super) fn delete_path(&mut self, ctx: &egui::Context, path: &Path) {
@@ -584,6 +616,19 @@ pub(super) fn reveal_in_file_manager(path: &Path) -> std::io::Result<()> {
         return std::process::Command::new("explorer").arg(arg).spawn().map(|_| ());
     }
     open_in_file_manager(if path.is_dir() { path } else { path.parent().unwrap_or(path) })
+}
+
+/// 폴더 안의 모든 파일 (하위 폴더 포함)
+fn for_each_file(dir: &Path, f: &mut dyn FnMut(&Path)) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(t) if t.is_dir() => for_each_file(&path, f),
+            Ok(t) if t.is_file() => f(&path),
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

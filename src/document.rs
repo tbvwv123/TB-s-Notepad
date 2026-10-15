@@ -17,11 +17,28 @@ pub enum TextEncoding {
     Utf16Be,
     /// 한국어 완성형/확장 완성형 (CP949)
     EucKr,
+    /// 일본어 (CP932)
+    ShiftJis,
+    /// 중국어 간체 (CP936)
+    Gbk,
+    /// 중국어 번체 (CP950)
+    Big5,
+    /// 서유럽 (영어 Windows 의 ANSI)
+    Windows1252,
 }
 
 impl TextEncoding {
-    pub const ALL: [TextEncoding; 5] =
-        [TextEncoding::Utf8, TextEncoding::Utf8Bom, TextEncoding::Utf16Le, TextEncoding::Utf16Be, TextEncoding::EucKr];
+    pub const ALL: [TextEncoding; 9] = [
+        TextEncoding::Utf8,
+        TextEncoding::Utf8Bom,
+        TextEncoding::Utf16Le,
+        TextEncoding::Utf16Be,
+        TextEncoding::EucKr,
+        TextEncoding::ShiftJis,
+        TextEncoding::Gbk,
+        TextEncoding::Big5,
+        TextEncoding::Windows1252,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -30,6 +47,22 @@ impl TextEncoding {
             TextEncoding::Utf16Le => "UTF-16 LE",
             TextEncoding::Utf16Be => "UTF-16 BE",
             TextEncoding::EucKr => "ANSI (CP949)",
+            TextEncoding::ShiftJis => "Shift-JIS (CP932)",
+            TextEncoding::Gbk => "GBK (CP936)",
+            TextEncoding::Big5 => "Big5 (CP950)",
+            TextEncoding::Windows1252 => "ANSI (Windows-1252)",
+        }
+    }
+
+    /// 옛 (한 바이트·두 바이트) 인코딩이면 encoding_rs 의 인코딩
+    fn legacy(self) -> Option<&'static encoding_rs::Encoding> {
+        match self {
+            TextEncoding::EucKr => Some(encoding_rs::EUC_KR),
+            TextEncoding::ShiftJis => Some(encoding_rs::SHIFT_JIS),
+            TextEncoding::Gbk => Some(encoding_rs::GBK),
+            TextEncoding::Big5 => Some(encoding_rs::BIG5),
+            TextEncoding::Windows1252 => Some(encoding_rs::WINDOWS_1252),
+            _ => None,
         }
     }
 }
@@ -118,6 +151,8 @@ pub struct Document {
     disk_hash: Option<u64>,
     /// 앱에서 고친 사이에 파일이 밖에서도 바뀜: 사용자가 고를 때까지 자동 저장을 멈춥니다.
     pub conflict: bool,
+    /// 마지막 자동 저장이 실패함: (오류, 실패한 때). 잠시 뒤 다시 시도하고, 성공하면 지워집니다.
+    pub save_error: Option<(String, std::time::Instant)>,
 }
 
 impl Document {
@@ -137,6 +172,7 @@ impl Document {
             disk: None,
             disk_hash: None,
             conflict: false,
+            save_error: None,
         }
     }
 
@@ -249,19 +285,12 @@ impl Document {
 
         // 덮어쓰기 전의 파일을 (가끔씩) 버전 기록으로 남김
         crate::history::record_before_save(path, &bytes);
-
-        // 임시 파일에 쓴 뒤 교체해서, 저장 도중 문제가 생겨도 원본이 망가지지 않게 합니다.
-        let tmp = path.with_extension(format!("{}.tbtmp", path.extension().and_then(|e| e.to_str()).unwrap_or("")));
-        std::fs::write(&tmp, &bytes)?;
-        if let Err(err) = std::fs::rename(&tmp, path) {
-            let _ = std::fs::remove_file(&tmp);
-            // 다른 프로세스가 파일을 잡고 있는 경우 등: 직접 덮어쓰기로 재시도
-            std::fs::write(path, &bytes).map_err(|_| err)?;
-        }
+        write_safely(path, &bytes)?;
 
         self.path = Some(path.to_path_buf());
         self.dirty = false;
         self.conflict = false;
+        self.save_error = None;
         self.remember_disk(&DiskSnapshot { stamp: DiskStamp::of(path), bytes });
         Ok(fell_back)
     }
@@ -352,10 +381,87 @@ fn decode(bytes: &[u8]) -> (String, TextEncoding) {
     }
     match std::str::from_utf8(bytes) {
         Ok(s) => (s.to_owned(), TextEncoding::Utf8),
-        Err(_) => {
-            // UTF-8이 아니면 한국어 Windows 기본 인코딩(CP949)으로 해석
-            let (cow, _) = encoding_rs::EUC_KR.decode_without_bom_handling(bytes);
-            (cow.into_owned(), TextEncoding::EucKr)
+        Err(_) => decode_legacy(bytes),
+    }
+}
+
+/// BOM 도 없고 UTF-8 도 아닌 파일: 어느 옛 인코딩인지 내용으로 알아냅니다.
+/// 예전에는 무조건 CP949 로 읽어서, 일본어 · 중국어 · 서유럽 파일을 깨진 채로 저장할 수 있었습니다.
+/// 짧은 글은 내용만으로 가리기 어려우므로 화면 언어를 힌트로 줍니다 (한국어면 짧은 CP949 메모를 바르게).
+fn decode_legacy(bytes: &[u8]) -> (String, TextEncoding) {
+    let hint: Option<&[u8]> = match crate::i18n::lang() {
+        crate::i18n::Lang::Ko => Some(b"kr"),
+        crate::i18n::Lang::Ja => Some(b"jp"),
+        crate::i18n::Lang::Zh => Some(b"cn"),
+        crate::i18n::Lang::En => None,
+    };
+    detect_legacy(bytes, hint)
+}
+
+/// `hint`: 이 글이 왔을 법한 나라의 최상위 도메인 (`kr`, `jp` ...)
+fn detect_legacy(bytes: &[u8], hint: Option<&[u8]>) -> (String, TextEncoding) {
+    let mut detector = chardetng::EncodingDetector::new();
+    detector.feed(bytes, true);
+    let guess = detector.guess(hint, false);
+    let ours = TextEncoding::ALL
+        .into_iter()
+        .find(|e| e.legacy() == Some(guess) || (guess == encoding_rs::GB18030 && *e == TextEncoding::Gbk));
+    let (cow, _) = guess.decode_without_bom_handling(bytes);
+    // 목록에 없는 인코딩(키릴 등)은 내용은 바르게 읽고, 저장은 UTF-8 로 (원래 인코딩으로 되돌릴 수 없으니 깨지지 않게)
+    (cow.into_owned(), ours.unwrap_or(TextEncoding::Utf8))
+}
+
+/// 파일을 안전하게 바꿔 씁니다.
+/// 1. 옆의 임시 파일에 다 쓴 뒤 원본과 바꿉니다 (도중에 꺼져도 원본은 그대로).
+/// 2. 바꾸기가 실패하면 (다른 프로그램이 잠깐 잡고 있는 등) 조금 기다렸다 다시 해 봅니다.
+/// 3. 그래도 안 되면 원본을 백업해 두고 그 자리에 덮어쓴 뒤 읽어서 확인하고, 실패하면 백업으로 되돌립니다.
+///    백업을 만들 수 없으면 원본을 건드리지 않고 오류를 돌려줍니다.
+pub fn write_safely(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let tmp = path.with_extension(format!("{ext}.tbtmp"));
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    let mut last_err = None;
+    for attempt in 0..5 {
+        match std::fs::rename(&tmp, path) {
+            Ok(()) => return Ok(()),
+            Err(e) => last_err = Some(e),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30 * (attempt + 1)));
+    }
+    let _ = std::fs::remove_file(&tmp);
+    let rename_err = last_err.unwrap_or_else(|| std::io::Error::other("rename failed"));
+    if !path.exists() {
+        return Err(rename_err);
+    }
+    // 바꿀 수 없으면 제자리 덮어쓰기. 그 전에 원본을 백업 (백업이 안 되면 원본을 건드리지 않음)
+    let bak = path.with_extension(format!("{ext}.tbbak"));
+    std::fs::copy(path, &bak).map_err(|_| rename_err)?;
+    let written = (|| {
+        let mut f = std::fs::OpenOptions::new().write(true).truncate(true).open(path)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        if std::fs::read(path)? != bytes {
+            return Err(std::io::Error::other("written content does not match"));
+        }
+        Ok(())
+    })();
+    match written {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&bak);
+            Ok(())
+        }
+        Err(e) => {
+            // 원본 내용을 되돌리고, 그것도 안 되면 백업 파일을 남겨 둠 (path.확장자.tbbak)
+            if std::fs::copy(&bak, path).is_ok() {
+                let _ = std::fs::remove_file(&bak);
+            }
+            Err(e)
         }
     }
 }
@@ -383,8 +489,9 @@ fn encode(text: &str, encoding: TextEncoding) -> Option<Vec<u8>> {
             }
             Some(v)
         }
-        TextEncoding::EucKr => {
-            let (bytes, _, had_errors) = encoding_rs::EUC_KR.encode(text);
+        legacy => {
+            let enc = legacy.legacy()?;
+            let (bytes, _, had_errors) = enc.encode(text);
             (!had_errors).then(|| bytes.into_owned())
         }
     }
@@ -395,9 +502,66 @@ mod tests {
     use super::*;
 
     #[test]
+    fn detects_legacy_encodings() {
+        let samples: [(&str, TextEncoding); 5] = [
+            ("안녕하세요. 오늘 회의 내용을 정리합니다. 예산과 일정을 다시 확인해 주세요.", TextEncoding::EucKr),
+            (
+                "こんにちは。今日の会議の内容をまとめます。予算と日程をもう一度確認してください。",
+                TextEncoding::ShiftJis,
+            ),
+            ("你好。今天整理一下会议内容。请再确认一下预算和日程安排，谢谢。", TextEncoding::Gbk),
+            ("你好。今天整理一下會議內容。請再確認一下預算和日程安排，謝謝。", TextEncoding::Big5),
+            ("Café menu: crème brûlée, naïve façade, déjà vu, piñata and résumé.", TextEncoding::Windows1252),
+        ];
+        let detect = |text: &str, enc: TextEncoding, hint: Option<&[u8]>| {
+            let bytes = encode(text, enc).unwrap();
+            let (decoded, found) = detect_legacy(&bytes, hint);
+            assert_eq!((decoded.as_str(), found), (text, enc), "{enc:?} / {hint:?}");
+        };
+        for (text, enc) in samples {
+            // 화면 언어 힌트 없이도
+            detect(text, enc, None);
+        }
+        // 한국어 화면: 짧은 CP949 메모도, 다른 나라 인코딩도
+        detect("첫 줄\r\n둘째 줄", TextEncoding::EucKr, Some(b"kr"));
+        for (text, enc) in samples.into_iter().filter(|(_, e)| *e != TextEncoding::Gbk) {
+            detect(text, enc, Some(b"kr"));
+        }
+        detect(samples[2].0, TextEncoding::Gbk, Some(b"cn"));
+        detect(samples[1].0, TextEncoding::ShiftJis, Some(b"jp"));
+    }
+
+    /// 다른 프로그램이 파일을 지우기(바꾸기) 못 하게 잡고 있으면 제자리에 쓰되, 백업으로 지킵니다.
+    #[cfg(windows)]
+    #[test]
+    fn safe_write_when_replace_is_blocked() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!("tbn_safe_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("메모.md");
+        std::fs::write(&path, "원본").unwrap();
+        // 읽기·쓰기는 허락하지만 지우기(이름 바꾸기로 덮기)는 막는 핸들
+        let share_rw = 0x1 | 0x2;
+        let holder = std::fs::OpenOptions::new().read(true).share_mode(share_rw).open(&path).unwrap();
+        write_safely(&path, "새 내용".as_bytes()).unwrap();
+        drop(holder);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "새 내용");
+        let leftovers: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(leftovers.len(), 1, "임시 · 백업 파일이 남지 않음: {leftovers:?}");
+
+        // 쓰기까지 막혀 있으면 원본은 그대로 두고 오류
+        let locked = std::fs::OpenOptions::new().read(true).share_mode(0x1).open(&path).unwrap();
+        assert!(write_safely(&path, "또 다른 내용".as_bytes()).is_err());
+        drop(locked);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "새 내용", "원본이 망가지지 않음");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn roundtrip_encodings() {
         let text = "안녕하세요 Hello\n둘째 줄";
-        for enc in TextEncoding::ALL {
+        // 다른 언어의 옛 인코딩은 한글을 담을 수 없으므로 detects_legacy_encodings 에서 따로 시험
+        for enc in TextEncoding::ALL.into_iter().filter(|e| e.legacy().is_none() || *e == TextEncoding::EucKr) {
             let bytes = encode(text, enc).unwrap();
             let (decoded, detected) = decode(&bytes);
             assert_eq!(decoded, text, "{enc:?}");

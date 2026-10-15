@@ -1,5 +1,7 @@
 # 버전 태그(v*)를 올리면 exe 를 빌드해 그 릴리스에 붙입니다.
 # 릴리스가 아직 없으면 초안(draft)으로 만들어 두니, 설명을 쓰고 공개하면 됩니다.
+# 공개 저장소에서는 빌드 출처 증명(attestation)도 남겨, 받은 exe 가 이 소스로 빌드된 것인지 확인할 수 있습니다:
+#   gh attestation verify TB-Notepad.exe -R tbvwv123/TB-s-Notepad
 name: Release
 
 on:
@@ -8,6 +10,9 @@ on:
 
 permissions:
   contents: write
+  # 빌드 출처 증명용
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -34,13 +39,23 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Rename
+        shell: pwsh
+        run: Copy-Item target\release\tb-notepad.exe TB-Notepad.exe
+
+      # 비공개 저장소에서는 (유료 플랜이 아니면) 쓸 수 없어 건너뜀
+      - name: Build provenance attestation
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: TB-Notepad.exe
+
       - name: Upload to the release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          Copy-Item target\release\tb-notepad.exe TB-Notepad.exe
           $hash = (Get-FileHash TB-Notepad.exe -Algorithm SHA256).Hash
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {

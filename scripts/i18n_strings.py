@@ -23,6 +23,17 @@ T = {
     ),
     "{} 저장됨": ("{} saved", "已保存 {}", "{} を保存しました"),
     "저장하지 못했습니다.\n{}\n\n{}": ("Couldn't save.\n{}\n\n{}", "无法保存。\n{}\n\n{}", "保存できませんでした。\n{}\n\n{}"),
+    "자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n\n{}\n{}": (
+        "Autosave failed. It will retry every few seconds.\nYour changes are still in the app, so don't close the window.\n\n{}\n{}",
+        "自动保存失败，将每隔几秒重试。\n修改内容仍保留在应用中，请不要关闭窗口。\n\n{}\n{}",
+        "自動保存に失敗しました。数秒ごとに再試行します。\n変更内容はアプリに残っているので、ウィンドウを閉じないでください。\n\n{}\n{}",
+    ),
+    "저장 실패 (다시 시도 중)": ("Save failed (retrying)", "保存失败（正在重试）", "保存失敗（再試行中）"),
+    "옮겼지만 이 메모들의 링크를 고쳐 저장하지 못했습니다:\n\n{}": (
+        "Moved, but couldn't save the updated links in these notes:\n\n{}",
+        "已移动，但无法保存以下笔记中更新后的链接：\n\n{}",
+        "移動しましたが、次のメモの更新したリンクを保存できませんでした:\n\n{}",
+    ),
     "{}: 이 인코딩으로 표현할 수 없는 글자가 있어 UTF-8로 저장했습니다": (
         "{}: some characters can't be written in this encoding, so it was saved as UTF-8",
         "{}：有无法用此编码表示的字符，已改为 UTF-8 保存",
