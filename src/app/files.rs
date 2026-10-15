@@ -183,7 +183,8 @@ impl NotepadApp {
                 self.docs[index].text = text;
             }
         }
-        match self.docs[index].save_to(&path) {
+        // 사용자가 직접 저장: 다른 프로그램이 파일을 잡고 있어도 백업해 두고 저장
+        match self.docs[index].save_to_allow_in_place(&path) {
             Ok(fell_back) => {
                 self.docs[index].highlight_cache = None;
                 self.docs[index].auto_named = false;
@@ -257,7 +258,7 @@ impl NotepadApp {
                 doc.save_error = Some((err.to_string(), std::time::Instant::now()));
                 if first && self.dialog.is_none() {
                     self.dialog = Some(Dialog::Message(tf!(
-                        "자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n\n{}\n{}",
+                        "자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n다른 프로그램이 파일을 쓰고 있다면 Ctrl+S 로 직접 저장해 보세요.\n\n{}\n{}",
                         path.display(),
                         err
                     )));

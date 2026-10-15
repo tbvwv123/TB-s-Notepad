@@ -109,7 +109,7 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/links.rs` | Parsing note links (path · `#L12` line · `#heading`), heading slugs, relative paths, relativizing pasted links |
 | `src/live.rs` | Document-view layout: hiding symbols, applying styles, decoration info for bullets, checkboxes, tables, images… |
 | `src/sidebar.rs` | Folder tree, search, rename, Recycle Bin delete, default notes folder |
-| `src/document.rs` | Document state, encoding detection (chardetng)/conversion, safe saving (temp file → replace; if replacing is blocked, write in place behind a backup) |
+| `src/document.rs` | Document state, encoding detection (chardetng)/conversion, safe saving (temp file → replace; if replacing is blocked, manual saves write in place behind a backup while autosave leaves the file alone and retries) |
 | `src/markdown.rs` | Source-view highlighting, HTML export, toolbar actions, find |
 | `src/settings.rs` | Settings values, theme palettes and global style |
 | `src/fonts.rs` | System font list, body/bold/code font families, bold variant lookup, variable-font weight, fake bold, baseline alignment |

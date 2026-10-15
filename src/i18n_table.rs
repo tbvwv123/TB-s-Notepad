@@ -220,7 +220,7 @@ pub const ROWS: &[(&str, &str, &str, &str)] = &[
     ("자동 ({})", "Automatic ({})", "自动（{}）", "自動 ({})"),
     ("자동 저장", "Autosave", "自动保存", "自動保存"),
     ("자동 저장 멈춤 (파일이 밖에서 바뀜)", "Autosave paused (file changed outside)", "自动保存已暂停（文件在外部被修改）", "自動保存を停止中 (ファイルが外部で変更)"),
-    ("자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n\n{}\n{}", "Autosave failed. It will retry every few seconds.\nYour changes are still in the app, so don't close the window.\n\n{}\n{}", "自动保存失败，将每隔几秒重试。\n修改内容仍保留在应用中，请不要关闭窗口。\n\n{}\n{}", "自動保存に失敗しました。数秒ごとに再試行します。\n変更内容はアプリに残っているので、ウィンドウを閉じないでください。\n\n{}\n{}"),
+    ("자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n다른 프로그램이 파일을 쓰고 있다면 Ctrl+S 로 직접 저장해 보세요.\n\n{}\n{}", "Autosave failed. It will retry every few seconds.\nYour changes are still in the app, so don't close the window.\nIf another program is using the file, try saving with Ctrl+S.\n\n{}\n{}", "自动保存失败，将每隔几秒重试。\n修改内容仍保留在应用中，请不要关闭窗口。\n如果有其他程序正在使用该文件，请试试按 Ctrl+S 手动保存。\n\n{}\n{}", "自動保存に失敗しました。数秒ごとに再試行します。\n変更内容はアプリに残っているので、ウィンドウを閉じないでください。\nほかのプログラムがファイルを使用中なら、Ctrl+S で保存してみてください。\n\n{}\n{}"),
     ("자동 줄 바꿈", "Word wrap", "自动换行", "自動折り返し"),
     ("작은 글씨", "Small text", "小字", "小さい文字"),
     ("작은 글씨  -#", "Small text  -#", "小字  -#", "小さい文字  -#"),

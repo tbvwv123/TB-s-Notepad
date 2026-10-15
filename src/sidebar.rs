@@ -478,7 +478,8 @@ fn search_notes(roots: &[PathBuf], query: &str) -> Vec<PathBuf> {
             if display_name(p, false).to_lowercase().contains(query) {
                 by_name.push(p.to_path_buf());
             } else if std::fs::metadata(p).is_ok_and(|m| m.len() < 512 * 1024)
-                && std::fs::read_to_string(p).is_ok_and(|t| t.to_lowercase().contains(query))
+                // 열 때와 똑같이 인코딩을 알아내 읽음 (CP949 · UTF-16 메모도 찾도록)
+                && std::fs::read(p).is_ok_and(|b| crate::document::decode(&b).0.to_lowercase().contains(query))
             {
                 by_content.push(p.to_path_buf());
             }
@@ -841,6 +842,26 @@ fn documents_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_reads_legacy_encodings() {
+        let root = std::env::temp_dir().join(format!("tbn_search_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let (cp949, _, _) = encoding_rs::EUC_KR.encode("회의록\r\n예산 검토는 다음 주에 합니다.\r\n");
+        std::fs::write(root.join("옛날.txt"), &cp949).unwrap();
+        let utf16: Vec<u8> =
+            [0xFF, 0xFE].into_iter().chain("예산 메모".encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        std::fs::write(root.join("유니코드.txt"), utf16).unwrap();
+        std::fs::write(root.join("다른 것.md"), "관계없는 글").unwrap();
+        let mut found: Vec<_> = search_notes(std::slice::from_ref(&root), "예산")
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        found.sort();
+        assert_eq!(found, ["옛날.txt", "유니코드.txt"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn natural_sort() {

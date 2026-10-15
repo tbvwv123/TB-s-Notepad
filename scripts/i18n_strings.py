@@ -23,10 +23,10 @@ T = {
     ),
     "{} 저장됨": ("{} saved", "已保存 {}", "{} を保存しました"),
     "저장하지 못했습니다.\n{}\n\n{}": ("Couldn't save.\n{}\n\n{}", "无法保存。\n{}\n\n{}", "保存できませんでした。\n{}\n\n{}"),
-    "자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n\n{}\n{}": (
-        "Autosave failed. It will retry every few seconds.\nYour changes are still in the app, so don't close the window.\n\n{}\n{}",
-        "自动保存失败，将每隔几秒重试。\n修改内容仍保留在应用中，请不要关闭窗口。\n\n{}\n{}",
-        "自動保存に失敗しました。数秒ごとに再試行します。\n変更内容はアプリに残っているので、ウィンドウを閉じないでください。\n\n{}\n{}",
+    "자동 저장에 실패했습니다. 몇 초마다 다시 시도합니다.\n고친 내용은 앱에 남아 있으니 창을 닫지 마세요.\n다른 프로그램이 파일을 쓰고 있다면 Ctrl+S 로 직접 저장해 보세요.\n\n{}\n{}": (
+        "Autosave failed. It will retry every few seconds.\nYour changes are still in the app, so don't close the window.\nIf another program is using the file, try saving with Ctrl+S.\n\n{}\n{}",
+        "自动保存失败，将每隔几秒重试。\n修改内容仍保留在应用中，请不要关闭窗口。\n如果有其他程序正在使用该文件，请试试按 Ctrl+S 手动保存。\n\n{}\n{}",
+        "自動保存に失敗しました。数秒ごとに再試行します。\n変更内容はアプリに残っているので、ウィンドウを閉じないでください。\nほかのプログラムがファイルを使用中なら、Ctrl+S で保存してみてください。\n\n{}\n{}",
     ),
     "저장 실패 (다시 시도 중)": ("Save failed (retrying)", "保存失败（正在重试）", "保存失敗（再試行中）"),
     "옮겼지만 이 메모들의 링크를 고쳐 저장하지 못했습니다:\n\n{}": (
