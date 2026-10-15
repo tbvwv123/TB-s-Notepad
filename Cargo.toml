@@ -1,0 +1,57 @@
+[package]
+name = "tb_notepad"
+version = "0.1.0"
+edition = "2024"
+description = "TB's Notepad - 가볍고 쉬운 Rust 메모장 (마크다운, 이미지, 폰트, 테마)"
+
+[[bin]]
+name = "tb-notepad"
+path = "src/main.rs"
+
+[dependencies]
+egui = "0.36"
+eframe = { version = "0.36", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "links",
+    "persistence",
+    "wayland",
+    "x11",
+] }
+egui_extras = { version = "0.36", default-features = false, features = ["file", "image", "gif", "webp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+rfd = "0.17"
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+encoding_rs = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde = { version = "1", features = ["derive"] }
+# --mcp 모드: JSON-RPC 메시지와 앱 설정(app.ron) 읽기. ron은 eframe이 이미 쓰는 것과 같은 버전
+serde_json = "1"
+ron = "0.12"
+# egui가 쓰는 것과 같은 글꼴 파서 (한글/영문 기준선 맞춤 계산용, 추가 용량 없음)
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+# Ctrl+V 이미지 붙여넣기 (창 서브클래싱) — 이미 eframe/winit이 쓰는 버전들
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+panic = "abort"
+
+# 디버그 빌드에서도 이미지 디코딩 등은 빠르게
+[profile.dev.package."*"]
+opt-level = 2
