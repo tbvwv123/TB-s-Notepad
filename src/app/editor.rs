@@ -39,7 +39,8 @@ impl NotepadApp {
             s.line_spacing,
             s.markdown_highlight && self.doc().is_markdown(),
         );
-        let live_style = live_style(&palette, s.editor_font_size);
+        let doc_row_height = ctx.fonts_mut(|f| f.row_height(&FontId::new(s.editor_font_size, doc_family())));
+        let live_style = live_style(&palette, s.editor_font_size, doc_row_height);
         let fake_bold = self.fonts.fake_bold;
         let id = editor_id(self.doc().id);
         let (side, col_w) = self.column(ui.available_width(), wrap);
@@ -334,6 +335,7 @@ impl NotepadApp {
 
         self.slash_menu(&ctx, id, typed_trigger, caret_rect, editor_focused, slash_key);
         self.auto_toggle(&ctx, id, typed_space);
+        self.repair_toggle_title(&ctx, id);
         if let Some(what) = menu_pick
             && let Some((d, sel)) = self.menu_sel.take()
             && d == doc_id
@@ -480,11 +482,12 @@ impl NotepadApp {
     }
 }
 
-fn live_style(palette: &Palette, size: f32) -> LiveStyle {
+fn live_style(palette: &Palette, size: f32, row_height: f32) -> LiveStyle {
     let bg = c(palette.editor_bg);
     let text = c(palette.text);
     LiveStyle {
         size,
+        row_height,
         body: doc_family(),
         bold: bold_family(),
         mono: egui::FontFamily::Monospace,
@@ -649,7 +652,8 @@ fn paint_line_numbers(
     let mut starts_line = true;
     for row in &galley.rows {
         let rect = row.rect().translate(origin);
-        if starts_line && rect.bottom() >= clip.top() {
+        // 문서 모드에서 숨긴 줄(`<details>` 등)은 높이가 거의 없으므로 번호를 그리지 않음 (겹치지 않게)
+        if starts_line && rect.bottom() >= clip.top() && rect.height() >= 4.0 {
             if rect.top() > clip.bottom() {
                 break;
             }

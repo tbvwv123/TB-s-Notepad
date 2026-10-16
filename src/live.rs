@@ -64,6 +64,8 @@ pub struct TableRow {
 #[derive(Clone)]
 pub struct LiveStyle {
     pub size: f32,
+    /// 본문 글꼴의 한 줄 높이. 숨긴 글자만 있는 줄(이모지만 있는 줄, 제목이 빈 토글)이 납작해지지 않게 씀
+    pub row_height: f32,
     pub body: FontFamily,
     pub bold: FontFamily,
     pub mono: FontFamily,
@@ -79,6 +81,7 @@ pub struct LiveStyle {
 impl LiveStyle {
     pub fn hash_into(&self, h: &mut impl Hasher) {
         self.size.to_bits().hash(h);
+        self.row_height.to_bits().hash(h);
         self.body.hash(h);
         self.bold.hash(h);
         self.mono.hash(h);
@@ -162,6 +165,12 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// 보이지 않지만 줄 높이는 글자 크기 `size` 의 보통 줄만큼 차지하는 글자
+    /// (숨긴 글자만 있는 줄도 커서와 줄 간격이 보통 줄과 같도록)
+    fn hidden_row(&self, size: f32) -> TextFormat {
+        TextFormat { line_height: Some(self.st.row_height * size / self.st.size), ..self.hidden() }
+    }
+
     /// 커서 줄이면 흐리게, 아니면 숨김
     fn marker(&self, active: bool) -> TextFormat {
         if active { self.fmt(&self.st.body, 1.0, self.st.muted) } else { self.hidden() }
@@ -217,8 +226,9 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
             if let Some(t) = toggles.iter().find(|t| line_no == t.summary) {
                 let title = crate::editing::summary_line(body).unwrap_or(0..0);
                 b.lead = (t.depth + 1) as f32 * indent_w;
-                // <summary> 태그는 커서가 있어도 숨김 (커서는 제목 안에만 머묾)
-                let m = b.hidden();
+                // <summary> 태그는 커서가 있어도 숨김 (커서는 제목 안에만 머묾).
+                // 제목이 비어도 줄이 납작해지지 않게 보통 줄 높이를 줌
+                let m = b.hidden_row(st.size);
                 b.push(&body[..title.start], m.clone());
                 let base = b.body();
                 inline(&mut b, &body[title.clone()], &base, active);
@@ -840,7 +850,8 @@ fn inline(b: &mut Builder<'_>, s: &str, base: &TextFormat, active: bool) {
             flush(b, plain, i);
             let size = base.font_id.size * EMOJI_SCALE;
             let start = b.chars;
-            let hidden = b.hidden();
+            // 이모지만 있는 줄도 보통 줄 높이 (숨긴 글자뿐이면 줄이 납작해져 커서·줄 번호가 겹침)
+            let hidden = b.hidden_row(base.font_id.size);
             // 첫 글자는 그림 앞(커서가 그림 왼쪽에 서도록), 나머지 앞에 그림 자리를 비워 둠
             b.push(&rest[..1], hidden.clone());
             b.lead = size + 4.0;
@@ -901,6 +912,7 @@ mod tests {
     fn style() -> LiveStyle {
         LiveStyle {
             size: 16.0,
+            row_height: 21.0,
             body: FontFamily::Proportional,
             bold: FontFamily::Proportional,
             mono: FontFamily::Monospace,
@@ -1004,6 +1016,9 @@ mod tests {
             assert!(!out.decos.iter().any(|d| matches!(d, Deco::Image { .. } | Deco::Link { .. })));
             // 그림 자리는 두 번째 글자 앞에 비워 둠
             assert!(out.job.sections.iter().any(|sec| sec.leading_space > 0.0));
+            // 숨긴 문법도 보통 줄 높이를 차지 (이모지만 있는 줄이 납작해지지 않게)
+            let first = out.job.sections.iter().find(|sec| sec.byte_range.start.0 == "오늘 ".len()).unwrap();
+            assert_eq!(first.format.line_height, Some(21.0));
         }
         assert!(parse_image_line("![:cat:](cat.png \"emoji\")").is_none());
         assert!(parse_image_line("![:a:](a.png \"emoji\") 글 ![:b:](b.png \"emoji\")").is_none(), "이모지 여럿인 줄");
@@ -1029,6 +1044,16 @@ mod tests {
         let p = parse_image_line(&line).unwrap();
         assert_eq!((p.alt, p.dest, p.width, p.align), ("고양이", "my cat.png", Some(55), ImgAlign::Right));
         assert_eq!(format_image_line("a", "b.png", None, ImgAlign::Left), "![a](b.png)");
+    }
+
+    #[test]
+    fn empty_toggle_title_keeps_its_row() {
+        let src = "<details open>\n<summary></summary>\n\n\n\n</details>\n";
+        let out = run(src, None, None);
+        let summary = "<details open>\n".len();
+        let sec = out.job.sections.iter().find(|sec| sec.byte_range.start.0 == summary).unwrap();
+        assert_eq!(sec.format.line_height, Some(21.0), "제목이 빈 토글 줄도 보통 높이");
+        assert!(out.decos.iter().any(|d| matches!(d, Deco::Toggle { empty: true, .. })));
     }
 
     #[test]

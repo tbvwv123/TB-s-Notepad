@@ -31,6 +31,16 @@ impl NotepadApp {
         let sel = r.start.0..r.end.0;
         let pressed = |m: Modifiers, k: Key| ctx.input(|i| i.modifiers.matches_exact(m) && i.key_pressed(k));
 
+        // 토글 제목에서 Enter: 제목에 줄바꿈을 넣지 않고 토글 안 첫 줄로
+        if pressed(Modifiers::NONE, Key::Enter)
+            && sel.is_empty()
+            && self.is_document_mode()
+            && let Some((text, cursor)) = editing::enter_in_summary(&self.doc().text, sel.start)
+        {
+            ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+            self.apply_edit(ctx, id, text, cursor..cursor);
+            return;
+        }
         if pressed(Modifiers::NONE, Key::Enter)
             && sel.is_empty()
             && let Some((text, cursor)) = editing::enter_in_list(&self.doc().text, sel.start)
@@ -54,6 +64,20 @@ impl NotepadApp {
         {
             ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter));
             self.flip_toggle(ctx, id, at, Some(sel.start));
+        }
+    }
+
+    /// TextEdit 다음: 한글 조합 중 Enter 처럼 위에서 가로채지 못해 토글 제목 안에 줄바꿈이 들어갔으면 바로잡습니다.
+    pub(super) fn repair_toggle_title(&mut self, ctx: &egui::Context, id: Id) {
+        if !self.is_document_mode() || !self.doc().text.contains("<summary>") {
+            return;
+        }
+        let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()).filter(|r| r.is_empty())
+        else {
+            return;
+        };
+        if let Some((text, cursor)) = editing::repair_split_summary(&self.doc().text, range.primary.index.0) {
+            self.apply_edit(ctx, id, text, cursor..cursor);
         }
     }
 

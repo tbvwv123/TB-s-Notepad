@@ -458,6 +458,7 @@ mod tests {
     fn welcome_note_renders_every_feature() {
         let style = LiveStyle {
             size: 16.0,
+            row_height: 21.0,
             body: egui::FontFamily::Proportional,
             bold: egui::FontFamily::Proportional,
             mono: egui::FontFamily::Monospace,

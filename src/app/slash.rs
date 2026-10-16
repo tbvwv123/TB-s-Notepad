@@ -148,7 +148,12 @@ fn trigger_start(text: &str, cursor: usize, trigger: char) -> Option<usize> {
     let mut before = text.chars().skip(start.saturating_sub(1));
     let prev = if start == 0 { None } else { before.next() };
     let ch = if start == 0 { text.chars().next() } else { before.next() };
-    (ch == Some(trigger) && prev.is_none_or(char::is_whitespace)).then_some(start)
+    // 이모지는 띄어 쓰지 않고 이어 넣을 수 있게, 이모지 바로 뒤의 `:` 도 엶
+    let after_emoji = || {
+        trigger == ':'
+            && text[..markdown::char_to_byte(text, start)].ends_with(&format!("\"{}\")", crate::emoji::TITLE))
+    };
+    (ch == Some(trigger) && (prev.is_none_or(char::is_whitespace) || after_emoji())).then_some(start)
 }
 
 /// 열려 있는 목록의 지금 검색어. 여는 글자가 지워졌거나 띄어쓰기가 들어가면 `None` (목록 닫기).
@@ -657,6 +662,8 @@ mod tests {
         assert_eq!(trigger_start("오늘 :", 4, ':'), Some(3));
         assert_eq!(trigger_start("시간:", 3, ':'), None, "낱말 뒤의 : 는 그냥 글자");
         assert_eq!(trigger_start("글 /", 3, ':'), None);
+        let after = "![:a:](a.png \"emoji\"):";
+        assert_eq!(trigger_start(after, after.chars().count(), ':'), Some(after.chars().count() - 1), "이모지 바로 뒤");
     }
 
     #[test]
