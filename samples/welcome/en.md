@@ -34,6 +34,7 @@ A light, easy notepad where formatting shows up as you type. This one note cover
 - **Search** (Ctrl+P): looks through file names and contents in every folder.
 - **Drag a note or folder** in the sidebar onto another folder to move it. Images and links in the note, and links in other notes pointing to it, are updated too.
 - Open files from elsewhere by dragging them onto the window or with ⋯ › Open file (Ctrl+O). They show up under "Open documents" in the sidebar.
+- The **Sort** button (right of the notes folder name in the sidebar) orders folders and notes separately by name, date modified or date created.
 
 ## `/` commands
 

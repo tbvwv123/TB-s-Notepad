@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, FontId, Rect, Response, RichText, Sense, TextEdit, Ui, pos2, vec2};
 
-use crate::settings::mix;
+use crate::settings::{SidebarSort, SortKey, SortOrder, mix};
 use crate::ui_kit::{self, Colors, Icon};
 
 pub const NOTE_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
@@ -20,6 +20,28 @@ struct Entry {
     path: PathBuf,
     name: String,
     is_dir: bool,
+    modified: Option<std::time::SystemTime>,
+    created: Option<std::time::SystemTime>,
+}
+
+impl SortOrder {
+    fn compare(self, a: &Entry, b: &Entry) -> std::cmp::Ordering {
+        let by_key = match self.key {
+            SortKey::Name => natural_cmp(&a.name, &b.name),
+            SortKey::Modified => a.modified.cmp(&b.modified),
+            SortKey::Created => a.created.cmp(&b.created),
+        };
+        let by_key = if self.descending { by_key.reverse() } else { by_key };
+        // 날짜가 같으면 이름 순
+        by_key.then_with(|| natural_cmp(&a.name, &b.name))
+    }
+}
+
+/// 폴더가 먼저, 폴더끼리는 `sort.folders`, 메모끼리는 `sort.notes` 순서로
+fn sort_entries(entries: &mut [Entry], sort: SidebarSort) {
+    entries.sort_by(|a, b| {
+        b.is_dir.cmp(&a.is_dir).then_with(|| if a.is_dir { sort.folders } else { sort.notes }.compare(a, b))
+    });
 }
 
 /// 사이드바에서 일어난 일 (앱이 처리)
@@ -71,6 +93,10 @@ pub struct Sidebar {
     search_job: Option<(String, std::sync::mpsc::Receiver<Found>)>,
     /// 링크로 찾아온 폴더: 잠시 강조하고 한 번 그 자리로 스크롤
     flash: Option<(PathBuf, Instant, bool)>,
+    /// 지금 정렬 (설정에서 받아 옴)
+    sort: SidebarSort,
+    /// 정렬 드롭다운을 펼쳐 둔 메모 폴더
+    sort_open: Option<PathBuf>,
 }
 
 /// 검색 결과
@@ -158,12 +184,21 @@ impl Sidebar {
                 } else if !is_note(&path) {
                     continue;
                 }
-                out.push(Entry { name: display_name(&path, is_dir), path, is_dir });
+                let meta = entry.metadata().ok();
+                let modified = meta.as_ref().and_then(|m| m.modified().ok());
+                let created = meta.as_ref().and_then(|m| m.created().ok());
+                out.push(Entry { name: display_name(&path, is_dir), path, is_dir, modified, created });
             }
         }
-        out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| natural_cmp(&a.name, &b.name)));
         self.cache.insert(dir.to_path_buf(), (Instant::now(), out.clone()));
         out
+    }
+
+    /// 폴더 내용을 지금 정렬대로
+    fn sorted_entries(&mut self, dir: &Path, skip_name: &str) -> Vec<Entry> {
+        let mut entries = self.entries(dir, skip_name);
+        sort_entries(&mut entries, self.sort);
+        entries
     }
 
     pub fn show(
@@ -173,9 +208,11 @@ impl Sidebar {
         active: Option<&Path>,
         loose: &[LooseDoc],
         image_folder: &str,
+        sort: &mut SidebarSort,
     ) -> Vec<Action> {
         let k = ui_kit::colors(ui);
         let mut actions = Vec::new();
+        self.sort = *sort;
 
         // 검색 칸
         search_box(ui, &mut self.query, k);
@@ -223,9 +260,38 @@ impl Sidebar {
                 let tip = root.display().to_string();
                 let header = header.on_hover_text(tip);
                 let plus = hover_icon_always(ui, &header, Icon::Plus, t!("이 폴더에 새 메모"), k);
+                // 정렬 (폴더 · 메모 따로, 모든 메모 폴더에 같이 적용)
+                let sort_btn = header_icon(ui, &header, Icon::Sort, t!("정렬"), k, 42.0);
+                if sort_btn.clicked() {
+                    self.sort_open = if self.sort_open.as_ref() == Some(root) { None } else { Some(root.clone()) };
+                }
+                let mut open = self.sort_open.as_ref() == Some(root);
+                if open {
+                    // 열림 상태를 직접 들고 있어서, 안의 드롭다운을 열어도 이 창이 닫히지 않음
+                    // (egui 가 기억하는 팝업은 한 번에 하나뿐이라 드롭다운이 열리면 바깥 메뉴가 밀려남)
+                    let shown = egui::Popup::menu(&sort_btn)
+                        .open_bool(&mut open)
+                        .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
+                        .gap(4.0)
+                        .show(|ui| sort_menu(ui, sort));
+                    // 바깥을 누르면 닫음. 드롭다운 목록이 열려 있으면 그 클릭은 목록이 받으므로 그대로 둠
+                    let popup = shown.map(|r| r.response.rect);
+                    let outside = ui.input(|i| {
+                        i.pointer.any_click()
+                            && i.pointer
+                                .interact_pos()
+                                .is_some_and(|p| !popup.is_some_and(|r| r.contains(p)) && !sort_btn.rect.contains(p))
+                    });
+                    if outside && !egui::Popup::is_any_open(ui.ctx()) {
+                        open = false;
+                    }
+                    if !open {
+                        self.sort_open = None;
+                    }
+                }
                 if plus {
                     actions.push(Action::NewNote(root.clone()));
-                } else if header.clicked() {
+                } else if header.clicked() && !sort_btn.clicked() {
                     if collapsed {
                         self.collapsed_roots.remove(root);
                     } else {
@@ -283,7 +349,7 @@ impl Sidebar {
         actions: &mut Vec<Action>,
         k: Colors,
     ) {
-        let entries = self.entries(dir, image_folder);
+        let entries = self.sorted_entries(dir, image_folder);
         if entries.is_empty() && depth == 0 {
             ui.label(RichText::new(t!("    아직 메모가 없습니다")).small().weak());
         }
@@ -791,6 +857,33 @@ fn hover_icon(ui: &mut Ui, row: &Response, icon: Icon, tip: &str, k: Colors) -> 
     small_icon_at(ui, row, icon, tip, k)
 }
 
+/// 정렬 창: 폴더 정렬, 메모 정렬 드롭다운
+fn sort_menu(ui: &mut Ui, sort: &mut SidebarSort) {
+    for (n, (title, order)) in
+        [(t!("폴더 정렬"), &mut sort.folders), (t!("메모 정렬"), &mut sort.notes)].into_iter().enumerate()
+    {
+        ui.label(RichText::new(title).small().weak());
+        egui::ComboBox::from_id_salt(("sidebar_sort", n)).selected_text(order.label()).width(230.0).show_ui(ui, |ui| {
+            for o in SortOrder::ALL {
+                ui.selectable_value(order, o, o.label());
+            }
+        });
+        ui.add_space(6.0);
+    }
+}
+
+/// 줄 오른쪽 끝에서 `dx` 만큼 안쪽에 늘 보이는 작은 아이콘 단추
+fn header_icon(ui: &mut Ui, row: &Response, icon: Icon, tip: &str, k: Colors, dx: f32) -> Response {
+    let r = Rect::from_center_size(pos2(row.rect.right() - dx, row.rect.center().y), vec2(22.0, 22.0));
+    let resp = ui.interact(r, row.id.with(("header_icon", icon as u8)), Sense::click()).on_hover_text(tip);
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 6.0, mix(k.panel, k.text, 0.10));
+    }
+    let color = if resp.hovered() { k.text } else { k.muted };
+    ui_kit::paint_icon(ui.painter(), r.shrink(5.0), icon, color, k.panel);
+    resp
+}
+
 fn hover_icon_always(ui: &mut Ui, row: &Response, icon: Icon, tip: &str, k: Colors) -> bool {
     small_icon_at(ui, row, icon, tip, k)
 }
@@ -940,6 +1033,46 @@ fn documents_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorts_folders_and_notes_separately() {
+        use std::time::{Duration, SystemTime};
+        let t = |s: u64| Some(SystemTime::UNIX_EPOCH + Duration::from_secs(s));
+        let e = |name: &str, is_dir: bool, m: u64, c: u64| Entry {
+            path: PathBuf::from(name),
+            name: name.into(),
+            is_dir,
+            modified: t(m),
+            created: t(c),
+        };
+        let mut list = vec![
+            e("메모2", false, 30, 10),
+            e("폴더B", true, 5, 50),
+            e("메모10", false, 20, 30),
+            e("폴더A", true, 9, 40),
+            e("메모1", false, 10, 20),
+        ];
+        fn names(l: &[Entry]) -> Vec<&str> {
+            l.iter().map(|e| e.name.as_str()).collect()
+        }
+        // 기본: 둘 다 이름 순 (숫자는 크기대로)
+        sort_entries(&mut list, SidebarSort::default());
+        assert_eq!(names(&list), ["폴더A", "폴더B", "메모1", "메모2", "메모10"]);
+        // 폴더는 만든 날짜 최근 순, 메모는 수정한 날짜 최근 순
+        let sort = SidebarSort {
+            folders: SortOrder { key: SortKey::Created, descending: true },
+            notes: SortOrder { key: SortKey::Modified, descending: true },
+        };
+        sort_entries(&mut list, sort);
+        assert_eq!(names(&list), ["폴더B", "폴더A", "메모2", "메모10", "메모1"]);
+        // 메모만 이름 역순, 폴더는 수정한 날짜 오래된 순
+        let sort = SidebarSort {
+            folders: SortOrder { key: SortKey::Modified, descending: false },
+            notes: SortOrder { key: SortKey::Name, descending: true },
+        };
+        sort_entries(&mut list, sort);
+        assert_eq!(names(&list), ["폴더B", "폴더A", "메모10", "메모2", "메모1"]);
+    }
 
     #[test]
     fn tag_search_with_and_or() {

@@ -36,6 +36,8 @@ pub enum Icon {
     Trash,
     /// 태그 (#)
     Tag,
+    /// 정렬 (길이가 줄어드는 세 줄)
+    Sort,
 }
 
 /// 화면 색 (현재 Visuals에서 읽음)
@@ -164,6 +166,11 @@ pub fn paint_icon(p: &Painter, rect: Rect, icon: Icon, color: Color32, bg: Color
             line(pos2(r.left(), c.y - 0.15 * s), pos2(r.right(), c.y - 0.15 * s));
             line(pos2(r.left(), c.y + 0.25 * s), pos2(r.right(), c.y + 0.25 * s));
             line(pos2(c.x, r.top()), pos2(c.x, r.bottom()));
+        }
+        Icon::Sort => {
+            line(o(-0.8, -0.55), o(0.8, -0.55));
+            line(o(-0.8, 0.0), o(0.3, 0.0));
+            line(o(-0.8, 0.55), o(-0.2, 0.55));
         }
         Icon::Tag => {
             line(o(-0.25, -0.8), o(-0.45, 0.8));

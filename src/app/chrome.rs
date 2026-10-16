@@ -221,7 +221,9 @@ impl NotepadApp {
             .collect();
         let roots = self.settings.roots.clone();
         let folder = self.settings.image_folder.clone();
-        let actions = self.sidebar.show(ui, &roots, active.as_deref(), &loose, &folder);
+        let mut sort = self.settings.sidebar_sort;
+        let actions = self.sidebar.show(ui, &roots, active.as_deref(), &loose, &folder, &mut sort);
+        self.settings.sidebar_sort = sort;
         self.handle_sidebar(&ctx, actions);
     }
 

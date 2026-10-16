@@ -290,6 +290,8 @@ pub struct Settings {
 
     pub word_wrap: bool,
     pub show_line_numbers: bool,
+    /// 사이드바 정렬 (폴더와 메모 따로)
+    pub sidebar_sort: SidebarSort,
     pub highlight_current_line: bool,
     pub markdown_highlight: bool,
     pub show_toolbar: bool,
@@ -350,8 +352,57 @@ impl Default for Settings {
             roots_initialized: false,
             sidebar_visible: true,
             autosave: true,
+            sidebar_sort: SidebarSort::default(),
         }
     }
+}
+
+/// 사이드바에서 무엇을 기준으로 늘어놓을지
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SortKey {
+    #[default]
+    Name,
+    Modified,
+    Created,
+}
+
+/// 정렬 기준과 방향 (`descending`: 이름은 하→가, 날짜는 최근 것 먼저)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SortOrder {
+    pub key: SortKey,
+    pub descending: bool,
+}
+
+impl SortOrder {
+    /// 메뉴에 보이는 순서
+    pub const ALL: [SortOrder; 6] = [
+        SortOrder { key: SortKey::Name, descending: false },
+        SortOrder { key: SortKey::Name, descending: true },
+        SortOrder { key: SortKey::Modified, descending: true },
+        SortOrder { key: SortKey::Modified, descending: false },
+        SortOrder { key: SortKey::Created, descending: true },
+        SortOrder { key: SortKey::Created, descending: false },
+    ];
+
+    pub fn label(self) -> &'static str {
+        match (self.key, self.descending) {
+            (SortKey::Name, false) => t!("이름 (가 → 하)"),
+            (SortKey::Name, true) => t!("이름 (하 → 가)"),
+            (SortKey::Modified, true) => t!("수정한 날짜 (최근 것 먼저)"),
+            (SortKey::Modified, false) => t!("수정한 날짜 (오래된 것 먼저)"),
+            (SortKey::Created, true) => t!("만든 날짜 (최근 것 먼저)"),
+            (SortKey::Created, false) => t!("만든 날짜 (오래된 것 먼저)"),
+        }
+    }
+}
+
+/// 폴더끼리, 메모끼리 따로 정렬 (폴더는 늘 메모보다 위)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SidebarSort {
+    pub folders: SortOrder,
+    pub notes: SortOrder,
 }
 
 const DUMMY: Palette = Palette {
