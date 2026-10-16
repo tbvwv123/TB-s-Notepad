@@ -42,7 +42,7 @@ No need to remember shortcuts. Type `/` at the start of a line or after a space 
 - Keep typing to filter the list: `/head`, `/link`, `/h2`, `/todo`.
 - Pick with ↑ ↓ and run with **Enter** (or Tab, or a click). The `/text` you typed is removed.
 - Type a **space** or press Esc to close the list; the `/` stays as plain text.
-- Commands: headings 1–3 · bulleted list · numbered list · to-do · quote · small text · code block · table · divider · web link · note link · copy link to this line · file link · folder link · image · audio · video · clipboard image · date and time · today's date
+- Commands: headings 1–3 · bulleted list · numbered list · to-do · quote · small text · code block · table · divider · web link · note link · copy link to this line · file link · folder link · image · audio · video · clipboard image · date and time · today's date · emoji
 - A `/` right after a letter, as in `10/15` or `a/b`, doesn't open the list.
 
 ## Lists and toggles
@@ -161,6 +161,15 @@ This was folded away. Toggles can hold lists and images too.
 - **Video** shows as a card with its first frame. Click ▶ in the middle or double-click the card to open it in your default video player.
 - Cards can be resized, moved and deleted just like images.
 - Audio and video files are large, so they aren't copied into the notes folder; the note points to the original file. If you move the file, the card says "File not found".
+
+## Custom emoji
+
+Like on Discord, you can use your own pictures as text-sized emoji.
+
+- **Add one**: right-click a picture in a note › **Add as emoji…**, or `/emoji` › **Add a new emoji from a picture…**, then pick a file and name it.
+- **Insert**: after a space, type `:` and the start of a name (`:par`) to see matching emoji. Press Enter, or type the whole `:parrot:` and it turns into the emoji.
+- An emoji behaves like one character: a single Backspace right after it removes it.
+- The pictures live in the `.emoji` folder of your notes folder, so they sync with your notes. Notes store them as ordinary image syntax, `![:parrot:](.emoji/parrot.png "emoji")`, so other markdown apps simply show the picture.
 
 ## Links between notes
 

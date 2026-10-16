@@ -48,6 +48,9 @@ pub enum Deco {
     Table { rows: Vec<TableRow>, aligns: Vec<ImgAlign>, row_height: f32 },
     /// Ctrl+클릭으로 열 링크
     Link { start: usize, end: usize, url: String },
+    /// 글 속 커스텀 이모지 (`![:이름:](주소 "emoji")`). `start`..`end` 는 문법 전체의 글자 범위로
+    /// 글자는 숨기고, 첫 글자 뒤에 비워 둔 `size` 크기 자리에 그림을 그립니다.
+    Emoji { start: usize, end: usize, uri: String, size: f32 },
 }
 
 /// 표의 한 행. `at` 은 그 줄의 첫 글자 위치
@@ -108,6 +111,9 @@ const MAX_LIVE_BYTES: usize = 1_000_000;
 /// 소리 카드 높이
 pub const AUDIO_CARD_HEIGHT: f32 = 58.0;
 
+/// 글 속 이모지의 크기 (글자 크기 대비)
+pub const EMOJI_SCALE: f32 = 1.25;
+
 /// `-#` 작은 글씨의 크기 (본문 대비)
 const SUBTEXT_SCALE: f32 = 0.8;
 
@@ -122,6 +128,8 @@ pub fn subtext_body(trimmed: &str) -> Option<&str> {
 struct Builder<'a> {
     job: LayoutJob,
     st: &'a LiveStyle,
+    /// 문서가 있는 폴더 (이모지 그림 주소를 풀 때)
+    base_dir: Option<&'a Path>,
     chars: usize,
     decos: Vec<Deco>,
     /// 이 줄 첫 글자 앞에 둘 빈 칸 (토글 안 들여쓰기)
@@ -163,7 +171,8 @@ impl<'a> Builder<'a> {
 pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
     let st = input.style;
     let text = input.text;
-    let mut b = Builder { job: LayoutJob::default(), st, chars: 0, decos: Vec::new(), lead: 0.0 };
+    let mut b =
+        Builder { job: LayoutJob::default(), st, base_dir: input.base_dir, chars: 0, decos: Vec::new(), lead: 0.0 };
     let mut image_uris = Vec::new();
 
     if text.len() > MAX_LIVE_BYTES {
@@ -612,6 +621,10 @@ fn plain_cell(cell: &str) -> String {
     let mut out = String::with_capacity(cell.len());
     let mut rest = cell;
     while let Some(ch) = rest.chars().next() {
+        if ch == '!' && rest[1..].starts_with('[') {
+            rest = &rest[1..];
+            continue;
+        }
         if ch == '['
             && let Some(close) = rest.find("](")
             && let Some(paren) = rest[close..].find(')')
@@ -683,7 +696,10 @@ pub fn parse_image_line(s: &str) -> Option<ImageLine<'_>> {
         (&rest[..end], &rest[..end], &rest[end..])
     };
     let after = after.trim();
-    if dest.is_empty() || (!after.is_empty() && !(after.starts_with('"') && after.ends_with('"') && after.len() >= 2)) {
+    // 제목은 따옴표 한 쌍뿐 (`![a](x "t") 글 ![b](y "t")` 처럼 그림 여럿이 있는 줄은 그림 줄이 아님)
+    let title_ok =
+        after.len() >= 2 && after.starts_with('"') && after.ends_with('"') && !after[1..after.len() - 1].contains('"');
+    if dest.is_empty() || (!after.is_empty() && !title_ok) {
         return None;
     }
     let mut width = None;
@@ -693,6 +709,7 @@ pub fn parse_image_line(s: &str) -> Option<ImageLine<'_>> {
             Some(("width", v)) => width = v.trim_end_matches('%').parse::<u32>().ok().map(|w| w.clamp(5, 100)),
             Some(("align", "center")) => align = ImgAlign::Center,
             Some(("align", "right")) => align = ImgAlign::Right,
+            None if token == crate::emoji::TITLE => return None,
             _ => {}
         }
     }
@@ -814,6 +831,25 @@ fn inline(b: &mut Builder<'_>, s: &str, base: &TextFormat, active: bool) {
                 plain = i;
                 continue;
             }
+        }
+
+        // 커스텀 이모지: 문법은 늘 숨기고 그 자리에 글자만 한 그림을 그림 (decorations.rs)
+        if c == b'!'
+            && let Some(e) = crate::emoji::parse_inline(rest)
+        {
+            flush(b, plain, i);
+            let size = base.font_id.size * EMOJI_SCALE;
+            let start = b.chars;
+            let hidden = b.hidden();
+            // 첫 글자는 그림 앞(커서가 그림 왼쪽에 서도록), 나머지 앞에 그림 자리를 비워 둠
+            b.push(&rest[..1], hidden.clone());
+            b.lead = size + 4.0;
+            b.push(&rest[1..e.len], hidden);
+            let uri = resolve_uri(e.dest, b.base_dir);
+            b.decos.push(Deco::Emoji { start, end: b.chars, uri, size });
+            i += e.len;
+            plain = i;
+            continue;
         }
 
         if c == b'[' || rest.starts_with("![") {
@@ -944,6 +980,35 @@ mod tests {
         for active in [None, Some(0)] {
             assert_eq!(run(src, active, None).job.text, src);
         }
+    }
+
+    #[test]
+    fn inline_emoji_keeps_text_and_reserves_space() {
+        let src = "오늘 ![:party:](.emoji/party.png \"emoji\") 끝\n![:cat:](.emoji/cat.png \"emoji\")\n";
+        for active in [None, Some(0), Some(1)] {
+            let out = run(src, active, None);
+            assert_eq!(out.job.text, src, "글자는 그대로");
+            let emoji: Vec<_> = out
+                .decos
+                .iter()
+                .filter_map(|d| match d {
+                    Deco::Emoji { start, end, uri, .. } => Some((*start, *end, uri.clone())),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(emoji.len(), 2, "이모지만 있는 줄도 큰 그림이 아니라 이모지: {:?}", out.decos);
+            let chars: Vec<char> = src.chars().collect();
+            let (s, e, uri) = &emoji[0];
+            assert_eq!(chars[*s..*e].iter().collect::<String>(), "![:party:](.emoji/party.png \"emoji\")");
+            assert!(uri.ends_with("party.png"), "{uri}");
+            assert!(!out.decos.iter().any(|d| matches!(d, Deco::Image { .. } | Deco::Link { .. })));
+            // 그림 자리는 두 번째 글자 앞에 비워 둠
+            assert!(out.job.sections.iter().any(|sec| sec.leading_space > 0.0));
+        }
+        assert!(parse_image_line("![:cat:](cat.png \"emoji\")").is_none());
+        assert!(parse_image_line("![:a:](a.png \"emoji\") 글 ![:b:](b.png \"emoji\")").is_none(), "이모지 여럿인 줄");
+        assert!(parse_image_line("![a](a.png \"width=50%\") 글 ![b](b.png \"x\")").is_none());
+        assert_eq!(plain_cell("![:cat:](cat.png \"emoji\") 고양이"), ":cat: 고양이");
     }
 
     #[test]

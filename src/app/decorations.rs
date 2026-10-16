@@ -111,6 +111,7 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
                 image(ui, view, &img, &mut out);
             }
             Deco::Link { start, end, url } => link(ui, view, *start, *end, url, &mut out),
+            Deco::Emoji { start, uri, size, .. } => emoji(ui, view, *start, uri, *size, &mut out),
             Deco::Table { rows, aligns, row_height } => table(ui, view, rows, aligns, *row_height, &mut out),
             Deco::Toggle { at, open, details_byte, depth, empty } => {
                 toggle(ui, view, *at, *open, *details_byte, *depth, *empty, &mut out)
@@ -315,6 +316,36 @@ fn rule(v: &DecoView<'_>, at: usize, out: &mut DecoOutput) {
     }
 }
 
+/// 글 속 이모지: 첫 글자 뒤에 비워 둔 자리에 그림을 (비율을 지켜) 그립니다.
+fn emoji(ui: &Ui, v: &DecoView<'_>, start: usize, uri: &str, size: f32, out: &mut DecoOutput) {
+    // 자리를 비워 둔 것은 둘째 글자 앞이므로, 그 글자의 왼쪽이 그림 자리의 오른쪽 끝
+    let after = v.pos(start + 1);
+    let slot = egui::Rect::from_center_size(
+        egui::pos2(after.left() - size / 2.0 - 2.0, after.center().y),
+        egui::vec2(size, size),
+    );
+    if !slot.intersects(v.clip) {
+        return;
+    }
+    match ui.ctx().try_load_texture(uri, egui::TextureOptions::LINEAR, egui::SizeHint::default()) {
+        Ok(egui::load::TexturePoll::Ready { texture }) => {
+            let s = texture.size;
+            let scale = if s.x > 0.0 && s.y > 0.0 { (size / s.x).min(size / s.y) } else { 1.0 };
+            let r = egui::Rect::from_center_size(slot.center(), s * scale);
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            out.fg.push(Shape::image(texture.id, r, uv, Color32::WHITE));
+        }
+        Ok(egui::load::TexturePoll::Pending { .. }) => {}
+        // 그림이 없거나 못 읽으면 빈 칸 표시
+        Err(_) => out.fg.push(Shape::rect_stroke(
+            slot.shrink(2.0),
+            3.0,
+            Stroke::new(1.0, mix(v.bg, v.muted, 0.7)),
+            egui::StrokeKind::Inside,
+        )),
+    }
+}
+
 struct ImageDeco<'a> {
     kind: MediaKind,
     at: usize,
@@ -355,6 +386,14 @@ fn image(ui: &mut Ui, v: &DecoView<'_>, img: &ImageDeco<'_>, out: &mut DecoOutpu
     let selected = v.selected_image == Some(img.line_start);
     if resp.clicked() {
         out.image_action = Some(ImageAction::Select(img.line_start));
+    }
+    if img.kind == MediaKind::Image {
+        resp.context_menu(|ui| {
+            if ui.button(t!("이모지로 등록…")).clicked() {
+                out.image_action = Some(ImageAction::RegisterEmoji(img.line_start));
+                ui.close();
+            }
+        });
     }
     // 소리·영상 카드 (재생 버튼은 줄 선택보다 나중에 등록해서 먼저 눌리게)
     if let Some(path) = media_path(img.kind, img.uri) {

@@ -1,6 +1,7 @@
 //! `/` 명령: 줄 맨 앞이나 띄어쓰기 뒤에서 `/` 를 치면 명령 목록이 뜹니다 (Notion 방식).
 //! 이어서 글자를 치면 걸러지고(한글 초성도 됨), ↑↓ 로 고르고 Enter 로 실행합니다.
 //! 스페이스를 치거나 Esc 를 누르면 목록이 닫히고 `/` 는 그냥 글자로 남습니다.
+//! 같은 목록 창으로 `:` 커스텀 이모지도 고릅니다 (`:이름` 을 치면 맞는 이모지, `/이모지` 면 전부).
 
 use super::*;
 
@@ -25,6 +26,7 @@ pub(super) enum Cmd {
     PasteImage,
     DateTime,
     Date,
+    Emoji,
 }
 
 /// 목록 왼쪽의 작은 그림
@@ -81,6 +83,7 @@ pub(super) const COMMANDS: &[Command] = &[
     ),
     c(Cmd::DateTime, "날짜와 시간", "date time now 지금 시각 날짜", "F5", Badge::Text("12")),
     c(Cmd::Date, "오늘 날짜", "today date 오늘 날짜", "", Badge::Text("31")),
+    c(Cmd::Emoji, "이모지", "emoji sticker custom 이모티콘 스티커 커스텀", ":", Badge::Text(":)")),
 ];
 
 const CHOSUNG: [char; 19] =
@@ -138,39 +141,104 @@ pub(super) fn filter(query: &str) -> Vec<usize> {
     hits.into_iter().map(|(_, i)| i).collect()
 }
 
-/// 방금 커서 바로 앞에 친 `/` 가 명령을 여는 자리인지 (줄 맨 앞이나 띄어쓰기 뒤). 그렇다면 `/` 의 글자 위치.
-fn slash_start(text: &str, cursor: usize) -> Option<usize> {
+/// 방금 커서 바로 앞에 친 `trigger`(`/` 나 `:`) 가 목록을 여는 자리인지 (줄 맨 앞이나 띄어쓰기 뒤).
+/// 그렇다면 그 글자의 위치.
+fn trigger_start(text: &str, cursor: usize, trigger: char) -> Option<usize> {
     let start = cursor.checked_sub(1)?;
     let mut before = text.chars().skip(start.saturating_sub(1));
     let prev = if start == 0 { None } else { before.next() };
-    let slash = if start == 0 { text.chars().next() } else { before.next() };
-    (slash == Some('/') && prev.is_none_or(char::is_whitespace)).then_some(start)
+    let ch = if start == 0 { text.chars().next() } else { before.next() };
+    (ch == Some(trigger) && prev.is_none_or(char::is_whitespace)).then_some(start)
 }
 
-/// 열려 있는 명령 목록의 지금 검색어. `/` 가 지워졌거나 띄어쓰기가 들어가면 `None` (목록 닫기).
-fn query_at(text: &str, start: usize, cursor: usize) -> Option<String> {
+/// 열려 있는 목록의 지금 검색어. 여는 글자가 지워졌거나 띄어쓰기가 들어가면 `None` (목록 닫기).
+fn query_at(text: &str, start: usize, cursor: usize, trigger: char) -> Option<String> {
     if cursor <= start {
         return None;
     }
     let mut it = text.chars().skip(start);
-    if it.next() != Some('/') {
+    if it.next() != Some(trigger) {
         return None;
     }
     let q: String = it.take(cursor - start - 1).collect();
-    (q.chars().count() == cursor - start - 1 && !q.chars().any(char::is_whitespace) && q.chars().count() <= 20)
+    (q.chars().count() == cursor - start - 1 && !q.chars().any(char::is_whitespace) && q.chars().count() <= 33)
         .then_some(q)
 }
 
-/// 열려 있는 `/` 명령 목록
+/// 목록 종류: `/` 명령 또는 `:` 커스텀 이모지
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum MenuKind {
+    Commands,
+    Emoji,
+}
+
+impl MenuKind {
+    fn trigger(self) -> char {
+        match self {
+            MenuKind::Commands => '/',
+            MenuKind::Emoji => ':',
+        }
+    }
+}
+
+/// 목록의 한 줄
+#[derive(Clone, Copy, PartialEq)]
+enum Item {
+    Cmd(usize),
+    Emoji(usize),
+    /// 그림 파일을 골라 새 이모지 등록
+    AddEmoji,
+}
+
+/// 열려 있는 `/` 명령 · `:` 이모지 목록
 pub(super) struct SlashMenu {
     doc_id: u64,
-    /// `/` 의 글자 위치
+    /// `/` · `:` 의 글자 위치
     start: usize,
     selected: usize,
     /// 키보드로 고른 줄을 보이게 스크롤
     scroll: bool,
     /// 지난 프레임에 그린 목록 자리 (목록을 누르는 동안 편집기 포커스가 빠져도 닫지 않게)
     popup: Option<egui::Rect>,
+    kind: MenuKind,
+    /// `/이모지` 로 연 이모지 목록: 검색어가 없어도 보이고 "새 이모지 추가" 줄이 있음
+    explicit: bool,
+    /// 이 메모 폴더의 이모지 (목록을 열 때 읽어 둠)
+    emoji: Vec<crate::emoji::Emoji>,
+    /// 지난 프레임에 목록이 보였는지 (`:` 목록은 맞는 이모지가 있을 때만 보임)
+    shown: bool,
+}
+
+impl SlashMenu {
+    fn new(doc_id: u64, start: usize, kind: MenuKind, explicit: bool, emoji: Vec<crate::emoji::Emoji>) -> Self {
+        let shown = kind == MenuKind::Commands || explicit;
+        Self { doc_id, start, selected: 0, scroll: false, popup: None, kind, explicit, emoji, shown }
+    }
+
+    fn items(&self, query: &str) -> Vec<Item> {
+        match self.kind {
+            MenuKind::Commands => filter(query).into_iter().map(Item::Cmd).collect(),
+            MenuKind::Emoji => {
+                let mut v: Vec<Item> =
+                    crate::emoji::filter(&self.emoji, query).into_iter().take(50).map(Item::Emoji).collect();
+                if self.explicit || !v.is_empty() {
+                    v.push(Item::AddEmoji);
+                }
+                v
+            }
+        }
+    }
+
+    /// 목록을 보여 줄지: 명령은 늘, 이모지는 `/이모지` 로 열었거나 한 글자 이상 쳐서 맞는 이모지가 있을 때
+    /// (`:` 는 "시간: 3시" 처럼 그냥 글에도 흔하므로)
+    fn visible(&self, query: &str, items: &[Item]) -> bool {
+        match self.kind {
+            MenuKind::Commands => true,
+            MenuKind::Emoji => {
+                self.explicit || (!query.is_empty() && items.iter().any(|i| matches!(i, Item::Emoji(_))))
+            }
+        }
+    }
 }
 
 /// 목록이 열려 있을 때 편집기 대신 받는 키
@@ -184,7 +252,7 @@ pub(super) enum MenuKey {
 
 impl NotepadApp {
     pub(super) fn slash_is_open(&self) -> bool {
-        self.slash.as_ref().is_some_and(|m| m.doc_id == self.doc().id)
+        self.slash.as_ref().is_some_and(|m| m.doc_id == self.doc().id && m.shown)
     }
 
     fn slash_query(&self, ctx: &egui::Context, id: Id) -> Option<String> {
@@ -194,13 +262,18 @@ impl NotepadApp {
             return None;
         }
         let cursor = TextEditState::load(ctx, id)?.cursor.char_range()?.primary.index.0;
-        query_at(&doc.text, menu.start, cursor)
+        query_at(&doc.text, menu.start, cursor, menu.kind.trigger())
     }
 
-    /// TextEdit 보다 먼저: 목록이 열려 있으면 ↑↓ · Enter · Tab · Esc 를 가로챕니다.
+    /// TextEdit 보다 먼저: 목록이 보이면 ↑↓ · Enter · Tab · Esc 를 가로챕니다.
     pub(super) fn slash_keys(&mut self, ctx: &egui::Context, id: Id) -> Option<MenuKey> {
         let query = self.slash_query(ctx, id)?;
-        let has_matches = !filter(&query).is_empty();
+        let menu = self.slash.as_ref()?;
+        let items = menu.items(&query);
+        if !menu.visible(&query, &items) {
+            return None;
+        }
+        let has_matches = !items.is_empty();
         ctx.input_mut(|i| {
             let mut take = |k: Key| i.consume_key(Modifiers::NONE, k);
             if take(Key::Escape) {
@@ -217,12 +290,13 @@ impl NotepadApp {
         })
     }
 
-    /// TextEdit 다음: 목록을 열고 닫고, 그리고, 고른 명령을 실행합니다.
+    /// TextEdit 다음: 목록을 열고 닫고, 그리고, 고른 것을 실행합니다.
+    /// `typed`: 이번 프레임에 친 `/` 나 `:`
     pub(super) fn slash_menu(
         &mut self,
         ctx: &egui::Context,
         id: Id,
-        typed_slash: bool,
+        typed: Option<char>,
         caret: Option<egui::Rect>,
         focused: bool,
         key: Option<MenuKey>,
@@ -233,18 +307,25 @@ impl NotepadApp {
             self.slash = None;
             return;
         }
-        // 새로 열기
-        if typed_slash
+        // 새로 열기 (`:` 는 이 메모 폴더에 이모지가 있을 때만)
+        if let Some(ch) = typed
             && focused
             && let Some(c) = cursor
-            && let Some(start) = slash_start(&self.doc().text, c)
+            && let Some(start) = trigger_start(&self.doc().text, c, ch)
         {
-            self.slash = Some(SlashMenu { doc_id, start, selected: 0, scroll: false, popup: None });
+            if ch == '/' {
+                self.slash = Some(SlashMenu::new(doc_id, start, MenuKind::Commands, false, Vec::new()));
+            } else {
+                let emoji = self.emoji_list();
+                if !emoji.is_empty() {
+                    self.slash = Some(SlashMenu::new(doc_id, start, MenuKind::Emoji, false, emoji));
+                }
+            }
         }
         let Some(menu) = &mut self.slash else { return };
         let pointer_on_popup =
             menu.popup.is_some_and(|r| ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p)));
-        let query = cursor.and_then(|c| query_at(&self.docs[self.active].text, menu.start, c));
+        let query = cursor.and_then(|c| query_at(&self.docs[self.active].text, menu.start, c, menu.kind.trigger()));
         let (Some(query), Some(cursor)) = (query, cursor) else {
             self.slash = None;
             return;
@@ -253,7 +334,25 @@ impl NotepadApp {
             self.slash = None;
             return;
         }
-        let items = filter(&query);
+        // `:이름:` 을 끝까지 치면 바로 그 이모지로 (맞는 이름이 없으면 그냥 글자로 두고 닫음)
+        if menu.kind == MenuKind::Emoji && query.contains(':') {
+            let start = menu.start;
+            let hit = query
+                .strip_suffix(':')
+                .and_then(|name| menu.emoji.iter().find(|e| e.name.eq_ignore_ascii_case(name)))
+                .cloned();
+            self.slash = None;
+            if let Some(e) = hit {
+                self.insert_emoji(ctx, id, start..cursor, &e);
+            }
+            return;
+        }
+        let items = menu.items(&query);
+        menu.shown = menu.visible(&query, &items);
+        if !menu.shown {
+            menu.popup = None;
+            return;
+        }
         menu.selected = menu.selected.min(items.len().saturating_sub(1));
         match key {
             Some(MenuKey::Down) if !items.is_empty() => {
@@ -272,21 +371,35 @@ impl NotepadApp {
         if run.is_none()
             && let Some(caret) = caret
         {
-            let (clicked, rect) = popup_ui(ctx, menu, caret, &items);
+            let (clicked, rect) = popup_ui(ctx, menu, caret, &items, &query);
             menu.popup = Some(rect);
             if clicked.is_some() {
                 run = clicked;
             }
         }
-        if let Some(i) = run {
-            let start = menu.start;
-            self.slash = None;
-            self.run_slash(ctx, id, start..cursor, COMMANDS[i].cmd);
+        let Some(item) = run else { return };
+        let start = menu.start;
+        let emoji = match item {
+            Item::Emoji(j) => menu.emoji.get(j).cloned(),
+            _ => None,
+        };
+        self.slash = None;
+        match item {
+            Item::Cmd(i) => self.run_slash(ctx, id, start..cursor, COMMANDS[i].cmd),
+            Item::Emoji(_) => {
+                if let Some(e) = emoji {
+                    self.insert_emoji(ctx, id, start..cursor, &e);
+                }
+            }
+            Item::AddEmoji => {
+                self.remove_typed(ctx, id, start..cursor);
+                self.add_emoji_dialog(&query, Some(start));
+            }
         }
     }
 
-    /// `/검색어` 글자를 지우고 명령을 실행합니다.
-    fn run_slash(&mut self, ctx: &egui::Context, id: Id, typed: Range<usize>, cmd: Cmd) {
+    /// 목록을 열려고 친 글자(`/검색어`)를 지우고 커서를 그 자리에
+    fn remove_typed(&mut self, ctx: &egui::Context, id: Id, typed: Range<usize>) {
         let doc = &mut self.docs[self.active];
         let (a, b) = (markdown::char_to_byte(&doc.text, typed.start), markdown::char_to_byte(&doc.text, typed.end));
         doc.text.replace_range(a..b, "");
@@ -295,6 +408,11 @@ impl NotepadApp {
         state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(typed.start))));
         state.store(ctx, id);
         self.focus_editor = true;
+    }
+
+    /// `/검색어` 글자를 지우고 명령을 실행합니다.
+    fn run_slash(&mut self, ctx: &egui::Context, id: Id, typed: Range<usize>, cmd: Cmd) {
+        self.remove_typed(ctx, id, typed.clone());
         let md = |a: MdAction| Some(a);
         let action = match cmd {
             Cmd::Heading(l) => md(MdAction::Heading(l)),
@@ -334,6 +452,19 @@ impl NotepadApp {
                 self.paste_clipboard_image(ctx);
                 None
             }
+            Cmd::Emoji => {
+                // `:` 를 넣고 이모지 목록을 엶 (이어서 치면 걸러짐)
+                let at = typed.start;
+                let doc = &mut self.docs[self.active];
+                doc.text.insert(markdown::char_to_byte(&doc.text, at), ':');
+                doc.mark_changed();
+                let mut state = TextEditState::load(ctx, id).unwrap_or_default();
+                state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(at + 1))));
+                state.store(ctx, id);
+                let emoji = self.emoji_list();
+                self.slash = Some(SlashMenu::new(self.doc().id, at, MenuKind::Emoji, true, emoji));
+                None
+            }
         };
         // 바로 적용: 서식 도구와 달리 줄을 선택해 두지 않고, 커서를 기호 바로 뒤에 둬서 이어 쓰게 합니다.
         if let Some(action) = action {
@@ -366,13 +497,14 @@ impl NotepadApp {
     }
 }
 
-/// 명령 목록 창. 누른 명령과 창 자리를 돌려줍니다.
+/// 목록 창. 누른 줄과 창 자리를 돌려줍니다.
 fn popup_ui(
     ctx: &egui::Context,
     menu: &mut SlashMenu,
     caret: egui::Rect,
-    items: &[usize],
-) -> (Option<usize>, egui::Rect) {
+    items: &[Item],
+    query: &str,
+) -> (Option<Item>, egui::Rect) {
     const ROW_H: f32 = 34.0;
     const WIDTH: f32 = 300.0;
     let list_h = (items.len().max(1) as f32 * ROW_H).min(ROW_H * 8.0);
@@ -395,8 +527,7 @@ fn popup_ui(
                 }
                 ScrollArea::vertical().max_height(list_h).auto_shrink([false, true]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for (row, &i) in items.iter().enumerate() {
-                        let cmd = &COMMANDS[i];
+                    for (row, &item) in items.iter().enumerate() {
                         let (rect, resp) =
                             ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_H), egui::Sense::click());
                         if resp.hovered() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
@@ -415,36 +546,75 @@ fn popup_ui(
                             rect.left_center() + egui::vec2(19.0, 0.0),
                             egui::vec2(26.0, 26.0),
                         );
-                        p.rect_filled(badge, 6.0, mix(k.panel, k.text, if selected { 0.12 } else { 0.06 }));
-                        match cmd.badge {
-                            Badge::Icon(icon) => ui_kit::paint_icon(p, badge.shrink(6.0), icon, k.text, k.panel),
-                            Badge::Text(t) => {
-                                p.text(badge.center(), Align2::CENTER_CENTER, t, FontId::monospace(11.5), k.text);
+                        let badge_bg = mix(k.panel, k.text, if selected { 0.12 } else { 0.06 });
+                        let text_badge = |t: &str| {
+                            p.rect_filled(badge, 6.0, badge_bg);
+                            p.text(badge.center(), Align2::CENTER_CENTER, t, FontId::monospace(11.5), k.text);
+                        };
+                        let (label, hint): (String, &str) = match item {
+                            Item::Cmd(i) => {
+                                let cmd = &COMMANDS[i];
+                                match cmd.badge {
+                                    Badge::Icon(icon) => {
+                                        p.rect_filled(badge, 6.0, badge_bg);
+                                        ui_kit::paint_icon(p, badge.shrink(6.0), icon, k.text, k.panel);
+                                    }
+                                    Badge::Text(t) => text_badge(t),
+                                }
+                                (crate::i18n::tr(cmd.label).to_owned(), cmd.hint)
                             }
-                        }
+                            Item::Emoji(j) => {
+                                let e = &menu.emoji[j];
+                                let uri = crate::markdown::file_uri(&e.path);
+                                if let Ok(egui::load::TexturePoll::Ready { texture }) =
+                                    ctx.try_load_texture(&uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
+                                {
+                                    let s = texture.size;
+                                    let scale = if s.x > 0.0 && s.y > 0.0 { (24.0 / s.x).min(24.0 / s.y) } else { 1.0 };
+                                    let r = egui::Rect::from_center_size(badge.center(), s * scale);
+                                    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                                    p.image(texture.id, r, uv, Color32::WHITE);
+                                }
+                                (format!(":{}:", e.name), "")
+                            }
+                            Item::AddEmoji => {
+                                text_badge("+");
+                                let name = crate::emoji::clean_name(query);
+                                let label = if name.is_empty() {
+                                    t!("그림으로 새 이모지 추가…").to_owned()
+                                } else {
+                                    tf!(":{}: 새 이모지로 추가…", name)
+                                };
+                                (label, "")
+                            }
+                        };
                         p.text(
                             rect.left_center() + egui::vec2(42.0, 0.0),
                             Align2::LEFT_CENTER,
-                            crate::i18n::tr(cmd.label),
+                            label,
                             FontId::proportional(14.0),
                             k.text,
                         );
-                        if !cmd.hint.is_empty() {
+                        if !hint.is_empty() {
                             p.text(
                                 rect.right_center() - egui::vec2(10.0, 0.0),
                                 Align2::RIGHT_CENTER,
-                                cmd.hint,
+                                hint,
                                 FontId::proportional(11.5),
                                 k.muted,
                             );
                         }
                         if resp.clicked() {
-                            clicked = Some(i);
+                            clicked = Some(item);
                         }
                     }
                 });
                 ui.add_space(4.0);
-                ui.label(RichText::new(t!("  ↑↓ 고르기 · Enter 실행 · Space / Esc 닫기")).size(11.0).color(k.muted));
+                let help = match menu.kind {
+                    MenuKind::Commands => t!("  ↑↓ 고르기 · Enter 실행 · Space / Esc 닫기"),
+                    MenuKind::Emoji => t!("  ↑↓ 고르기 · Enter 넣기 · Space / Esc 닫기"),
+                };
+                ui.label(RichText::new(help).size(11.0).color(k.muted));
             });
         },
     );
@@ -475,22 +645,29 @@ mod tests {
 
     #[test]
     fn slash_opens_only_at_word_start() {
-        assert_eq!(slash_start("/", 1), Some(0));
-        assert_eq!(slash_start("글 /", 3), Some(2));
-        assert_eq!(slash_start("한\n/", 3), Some(2));
-        assert_eq!(slash_start("10/", 3), None, "날짜·경로 속 / 는 그냥 글자");
-        assert_eq!(slash_start("http:/", 6), None);
-        assert_eq!(slash_start("a", 1), None);
-        assert_eq!(slash_start("", 0), None);
+        let slash = |t, c| trigger_start(t, c, '/');
+        assert_eq!(slash("/", 1), Some(0));
+        assert_eq!(slash("글 /", 3), Some(2));
+        assert_eq!(slash("한\n/", 3), Some(2));
+        assert_eq!(slash("10/", 3), None, "날짜·경로 속 / 는 그냥 글자");
+        assert_eq!(slash("http:/", 6), None);
+        assert_eq!(slash("a", 1), None);
+        assert_eq!(slash("", 0), None);
+        // 이모지 `:` 도 같은 규칙
+        assert_eq!(trigger_start("오늘 :", 4, ':'), Some(3));
+        assert_eq!(trigger_start("시간:", 3, ':'), None, "낱말 뒤의 : 는 그냥 글자");
+        assert_eq!(trigger_start("글 /", 3, ':'), None);
     }
 
     #[test]
     fn query_closes_on_space_or_deleted_slash() {
         let t = "글 /메모 끝";
-        assert_eq!(query_at(t, 2, 3).as_deref(), Some(""));
-        assert_eq!(query_at(t, 2, 5).as_deref(), Some("메모"));
-        assert_eq!(query_at(t, 2, 6), None, "스페이스를 치면 닫힘");
-        assert_eq!(query_at(t, 2, 2), None, "/ 앞으로 커서가 가면 닫힘");
-        assert_eq!(query_at("글 메모", 2, 3), None, "/ 가 지워지면 닫힘");
+        let q = |t, s, c| query_at(t, s, c, '/');
+        assert_eq!(q(t, 2, 3).as_deref(), Some(""));
+        assert_eq!(q(t, 2, 5).as_deref(), Some("메모"));
+        assert_eq!(q(t, 2, 6), None, "스페이스를 치면 닫힘");
+        assert_eq!(q(t, 2, 2), None, "/ 앞으로 커서가 가면 닫힘");
+        assert_eq!(q("글 메모", 2, 3), None, "/ 가 지워지면 닫힘");
+        assert_eq!(query_at("글 :party:", 2, 9, ':').as_deref(), Some("party:"));
     }
 }

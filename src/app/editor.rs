@@ -55,7 +55,10 @@ impl NotepadApp {
         }
         // / 명령 목록이 열려 있으면 ↑↓ · Enter · Esc 는 목록이 받음
         let slash_key = if ctx.memory(|m| m.has_focus(id)) { self.slash_keys(&ctx, id) } else { None };
-        let typed_slash = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('/'))));
+        // 방금 친 `/` (명령 목록) 나 `:` (이모지 목록)
+        let typed_trigger = ['/', ':']
+            .into_iter()
+            .find(|&ch| ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t.ends_with(ch)))));
         let typed_space = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == " ")));
         // 목록 이어 쓰기 · 들여쓰기 · 토글 접기 (TextEdit 이 Enter/Tab 을 받기 전에)
         self.editing_keys(&ctx, id);
@@ -95,6 +98,11 @@ impl NotepadApp {
         // 그림 줄은 한 덩어리: 커서는 그림 앞/뒤에만, 그 자리에서 입력하면 새 줄을 만들어 그림 문법이 깨지지 않게
         let spans = image_spans(&self.docs[self.active]);
         let hide_caret = doc_mode && has_focus && self.guard_image_edges(&ctx, id, &spans);
+        // 이모지도 한 덩어리: 바로 뒤에서 Backspace · 바로 앞에서 Delete 면 통째로 지움
+        let emoji = if doc_mode { emoji_spans(&self.docs[self.active]) } else { Vec::new() };
+        if has_focus && !emoji.is_empty() {
+            self.guard_emoji_edges(&ctx, id, &emoji);
+        }
 
         let last_cursor = self.last_cursor.filter(|(d, _)| *d == doc_id).map(|(_, c)| c);
         let selected_img = self.selected_image.filter(|(d, _)| *d == doc_id).map(|(_, l)| l);
@@ -255,7 +263,9 @@ impl NotepadApp {
                     let vertical = ui.input(|i| {
                         [Key::ArrowUp, Key::ArrowDown, Key::PageUp, Key::PageDown].into_iter().any(|k| i.key_pressed(k))
                     });
-                    if let Some(snapped) = snap_out_of_images(range, &decorations.image_rects, last_cursor, vertical) {
+                    let snapped = snap_out_of_images(range, &decorations.image_rects, last_cursor, vertical)
+                        .or_else(|| snap_out_of_emoji(range, &emoji_spans(doc), last_cursor));
+                    if let Some(snapped) = snapped {
                         let mut st = output.state.clone();
                         st.cursor.set_char_range(Some(snapped));
                         st.store(&ctx, id);
@@ -322,7 +332,7 @@ impl NotepadApp {
             });
         });
 
-        self.slash_menu(&ctx, id, typed_slash, caret_rect, editor_focused, slash_key);
+        self.slash_menu(&ctx, id, typed_trigger, caret_rect, editor_focused, slash_key);
         self.auto_toggle(&ctx, id, typed_space);
         if let Some(what) = menu_pick
             && let Some((d, sel)) = self.menu_sel.take()
@@ -340,6 +350,7 @@ impl NotepadApp {
             }
         }
         match image_action {
+            Some(ImageAction::RegisterEmoji(line)) => self.register_emoji_from_image(line),
             Some(ImageAction::Select(line)) => {
                 self.selected_image = Some((doc_id, line));
                 ctx.memory_mut(|m| m.surrender_focus(id));
@@ -565,6 +576,22 @@ fn snap_out_of_images(
     })
 }
 
+/// 커서가 이모지 문법 안으로 들어가면 옮길 자리: 이모지 뒤에서 ← 로 들어오면 앞, 그 밖(→ · 클릭 · 위아래)은 뒤.
+fn snap_out_of_emoji(
+    range: CCursorRange,
+    spans: &[(usize, usize)],
+    last_cursor: Option<usize>,
+) -> Option<CCursorRange> {
+    let p = range.primary.index.0;
+    let &(s0, e0) = spans.iter().find(|(s0, e0)| *s0 < p && p < *e0)?;
+    let target = if last_cursor == Some(e0) { s0 } else { e0 };
+    Some(if range.is_empty() {
+        CCursorRange::one(CCursor::new(target))
+    } else {
+        CCursorRange { primary: CCursor::new(target), ..range }
+    })
+}
+
 /// 상태 표시줄용 줄·열·선택 글자 수
 fn cursor_info_at(text: &str, range: CCursorRange) -> CursorInfo {
     let r = range.as_sorted_char_range();
@@ -659,6 +686,18 @@ mod tests {
         assert!(snap_out_of_images(one(5), &imgs, Some(4), false).is_none());
         assert!(snap_out_of_images(one(10), &imgs, Some(3), true).is_none());
         assert!(snap_out_of_images(one(40), &imgs, Some(39), false).is_none());
+    }
+
+    #[test]
+    fn cursor_skips_over_emoji() {
+        let spans = [(5, 30)];
+        let one = |p| CCursorRange::one(CCursor::new(p));
+        let at = |r: Option<CCursorRange>| r.map(|r| r.primary.index.0);
+        assert_eq!(at(snap_out_of_emoji(one(6), &spans, Some(5))), Some(30), "→ 로 넘어감");
+        assert_eq!(at(snap_out_of_emoji(one(29), &spans, Some(30))), Some(5), "← 로 넘어감");
+        assert_eq!(at(snap_out_of_emoji(one(17), &spans, None)), Some(30), "클릭하면 뒤");
+        assert!(snap_out_of_emoji(one(5), &spans, None).is_none());
+        assert!(snap_out_of_emoji(one(30), &spans, None).is_none());
     }
 
     #[test]

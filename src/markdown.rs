@@ -456,6 +456,7 @@ pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
   table {{ border-collapse: collapse; }}
   th, td {{ border: 1px solid {muted}88; padding: 6px 12px; }}
   img {{ max-width: 100%; }}
+  img[title="emoji"] {{ height: 1.3em; width: auto; vertical-align: -0.3em; }}
   hr {{ border: none; border-top: 1px solid {muted}88; }}
   small.subtext {{ color: {muted}; font-size: .82em; }}
 </style>

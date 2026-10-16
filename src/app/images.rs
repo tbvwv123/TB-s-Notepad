@@ -253,7 +253,7 @@ impl NotepadApp {
     pub(super) fn apply_image_action(&mut self, action: ImageAction) {
         let doc = &mut self.docs[self.active];
         let (line, change) = match action {
-            ImageAction::Select(_) => return,
+            ImageAction::Select(_) | ImageAction::RegisterEmoji(_) => return,
             ImageAction::Width(l, w) => (l, Some((Some(w), None))),
             ImageAction::Align(l, a) => (l, Some((None, Some(a)))),
             ImageAction::Delete(l) => (l, None),
@@ -299,6 +299,8 @@ pub(super) enum ImageAction {
     Width(usize, Option<u32>),
     Align(usize, ImgAlign),
     Delete(usize),
+    /// 이 그림을 커스텀 이모지로 등록 (이름 묻기)
+    RegisterEmoji(usize),
 }
 
 /// 문서 안에 그대로 보이는 파일 (그림·소리·영상)
@@ -313,6 +315,18 @@ pub(super) fn image_spans(doc: &Document) -> Vec<(usize, usize, usize)> {
         .iter()
         .filter_map(|d| match d {
             Deco::Image { at, end, line, .. } => Some((*at, *end, line.start)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 문서 모드에서 글 속 이모지들의 (시작 글자, 끝 글자)
+pub(super) fn emoji_spans(doc: &Document) -> Vec<(usize, usize)> {
+    let Some((_, _, decos, _)) = &doc.live_cache else { return Vec::new() };
+    decos
+        .iter()
+        .filter_map(|d| match d {
+            Deco::Emoji { start, end, .. } => Some((*start, *end)),
             _ => None,
         })
         .collect()

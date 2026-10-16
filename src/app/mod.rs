@@ -6,6 +6,7 @@ mod decorations;
 mod dialogs;
 mod edit_menu;
 mod editor;
+mod emoji_ui;
 mod file_ops;
 mod files;
 mod find;
@@ -104,6 +105,13 @@ enum Dialog {
     NewFolder {
         parent: PathBuf,
         name: String,
+    },
+    /// 그림 `source` 를 이모지 폴더 `dir` 에 `name` 으로 등록. `insert_at`: 등록하면 넣을 (문서, 글자 위치)
+    RegisterEmoji {
+        source: PathBuf,
+        dir: PathBuf,
+        name: String,
+        insert_at: Option<(u64, usize)>,
     },
     /// 앱에서 고친 사이 파일이 밖에서도 바뀜: 다시 불러오기 / 내 내용 유지
     ExternalChange(u64),

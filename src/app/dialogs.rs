@@ -1,4 +1,4 @@
-//! 모달 대화상자 (저장 확인, 알림, 휴지통, 새 폴더, 밖에서 바뀐 파일).
+//! 모달 대화상자 (저장 확인, 알림, 휴지통, 새 폴더, 새 이모지, 밖에서 바뀐 파일).
 
 use super::*;
 
@@ -37,6 +37,9 @@ impl NotepadApp {
                     None,
                 ),
                 Dialog::NewFolder { .. } => (t!("새 폴더"), String::new(), t!("만들기"), None),
+                Dialog::RegisterEmoji { .. } => {
+                    (t!("새 이모지"), t!("이름을 정하면 글에서 :이름: 으로 넣을 수 있습니다.").into(), t!("추가"), None)
+                }
                 Dialog::ExternalChange(id) => {
                     let name = self.docs.iter().find(|d| d.id == *id).map(doc_display_title).unwrap_or_default();
                     (
@@ -55,7 +58,11 @@ impl NotepadApp {
             };
             ui.label(RichText::new(title).size(17.0).strong());
             ui.add_space(8.0);
-            if let Dialog::NewFolder { name, .. } = dialog {
+            if let Dialog::NewFolder { name, .. } | Dialog::RegisterEmoji { name, .. } = dialog {
+                if !body.is_empty() {
+                    ui.label(body);
+                    ui.add_space(6.0);
+                }
                 let resp =
                     ui.add(TextEdit::singleline(name).desired_width(f32::INFINITY).margin(Margin::symmetric(8, 6)));
                 if !resp.has_focus() && !resp.lost_focus() {
@@ -127,6 +134,9 @@ impl NotepadApp {
             }
             // 꼭 골라야 하는 대화상자 (Esc로 닫지 않음)
             (Some(d @ Dialog::ExternalChange(_)), Choice::Cancel) => self.dialog = Some(d),
+            (Some(Dialog::RegisterEmoji { source, dir, name, insert_at }), Choice::Primary) => {
+                self.finish_register_emoji(ctx, &source, &dir, &name, insert_at);
+            }
             (Some(Dialog::NewFolder { parent, name }), Choice::Primary) => {
                 let clean = sanitize_file_name(&name);
                 if !clean.is_empty() {

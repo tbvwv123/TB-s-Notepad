@@ -62,7 +62,7 @@ Select text and right-click › **Copy hyperlink** to make a link in one step.
 
 ### ⚡ `/` commands
 No shortcuts to memorize. Type `/` and run commands by name — `/table`, `/link`, `/h2`.
-Type a space and it stays a plain `/`.
+Type a space and it stays a plain `/`. Type `:name` for your own custom emoji.
 
 </td>
 </tr>
@@ -154,6 +154,7 @@ Also: code blocks (```` ``` ````), HTML export, find and replace, and search acr
 | Ctrl+B / I / K | Bold / italic / link |
 | Ctrl+Alt+1–3 | Heading 1–3 |
 | `/` | Command list (at line start or after a space; space closes it) |
+| `:` | Custom emoji list (`:name`, or the full `:name:`) |
 | Ctrl+Shift+K | Insert note link |
 | Enter · Tab / Shift+Tab | Continue a list · indent / outdent list items |
 | Ctrl+Enter | Fold / unfold a toggle |
