@@ -88,6 +88,7 @@ impl NotepadApp {
                     (t!("굵게"), "Ctrl+B", MdAction::Bold),
                     (t!("기울임"), "Ctrl+I", MdAction::Italic),
                     (t!("취소선"), "", MdAction::Strike),
+                    (t!("형광펜"), "Ctrl+Shift+H", MdAction::Highlight),
                     (t!("인라인 코드"), "", MdAction::Code),
                     (t!("링크"), "Ctrl+K", MdAction::Link),
                 ] {
@@ -303,6 +304,11 @@ impl NotepadApp {
                 (RichText::new("B").strong(), t!("굵게 (Ctrl+B)"), MdAction::Bold),
                 (RichText::new("I").italics(), t!("기울임 (Ctrl+I)"), MdAction::Italic),
                 (RichText::new("S").strikethrough(), t!("취소선"), MdAction::Strike),
+                (
+                    RichText::new("H").background_color(Color32::from_rgba_unmultiplied(255, 205, 0, 110)),
+                    t!("형광펜 (Ctrl+Shift+H)"),
+                    MdAction::Highlight,
+                ),
                 (RichText::new("</>").monospace(), t!("인라인 코드"), MdAction::Code),
             ] {
                 if ui_kit::text_button(ui, text, tip, false, base).clicked() {

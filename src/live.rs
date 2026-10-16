@@ -48,6 +48,8 @@ pub enum Deco {
     Table { rows: Vec<TableRow>, aligns: Vec<ImgAlign>, row_height: f32 },
     /// Ctrl+클릭으로 열 링크
     Link { start: usize, end: usize, url: String },
+    /// `#태그`: 둥근 바탕을 깔고, Ctrl+클릭하면 그 태그가 붙은 메모를 모아 봄
+    Tag { start: usize, end: usize, tag: String },
     /// 글 속 커스텀 이모지 (`![:이름:](주소 "emoji")`). `start`..`end` 는 문법 전체의 글자 범위로
     /// 글자는 숨기고, 첫 글자 뒤에 비워 둔 `size` 크기 자리에 그림을 그립니다.
     Emoji { start: usize, end: usize, uri: String, size: f32 },
@@ -76,6 +78,10 @@ pub struct LiveStyle {
     pub code_bg: Color32,
     pub link: Color32,
     pub quote: Color32,
+    /// `==형광펜==` 바탕색
+    pub mark: Color32,
+    /// `#태그` 글자색
+    pub tag: Color32,
 }
 
 impl LiveStyle {
@@ -85,7 +91,9 @@ impl LiveStyle {
         self.body.hash(h);
         self.bold.hash(h);
         self.mono.hash(h);
-        for c in [self.text, self.muted, self.heading, self.code, self.code_bg, self.link, self.quote] {
+        for c in
+            [self.text, self.muted, self.heading, self.code, self.code_bg, self.link, self.quote, self.mark, self.tag]
+        {
             c.to_array().hash(h);
         }
     }
@@ -482,18 +490,19 @@ struct ListMarker {
 pub const TOGGLE_INDENT_SCALE: f32 = 1.4;
 
 /// 토글 한 덩어리 (줄 번호): `<details>` · `<summary>` · `</details>`
-struct ToggleBlock {
-    details: usize,
-    summary: usize,
-    close: usize,
-    open: bool,
+/// 토글 하나 (줄 번호는 0부터)
+pub(crate) struct ToggleBlock {
+    pub details: usize,
+    pub summary: usize,
+    pub close: usize,
+    pub open: bool,
     /// 바깥 토글 수
-    depth: usize,
-    details_byte: usize,
+    pub depth: usize,
+    pub details_byte: usize,
 }
 
 /// 문서의 토글들 (코드 블록 안은 빼고, 닫히지 않은 것도 뺌)
-fn find_toggles(text: &str) -> Vec<ToggleBlock> {
+pub(crate) fn find_toggles(text: &str) -> Vec<ToggleBlock> {
     use crate::editing::{is_toggle_close, summary_line, toggle_open_line};
     let mut lines = Vec::new();
     let mut at = 0;
@@ -799,18 +808,20 @@ fn inline(b: &mut Builder<'_>, s: &str, base: &TextFormat, active: bool) {
         }
 
         let mut matched = false;
-        for (m, kind) in [("**", 0), ("__", 0), ("~~", 1)] {
+        for (m, kind) in [("**", 0), ("__", 0), ("~~", 1), ("==", 2)] {
             if rest.starts_with(m)
                 && let Some(close) = rest[2..].find(m)
                 && close > 0
+                // ==형광펜== 은 안쪽 양 끝이 띄어쓰기가 아니어야 함 (`a == b` 같은 글은 그대로)
+                && (kind != 2 || !(rest[2..].starts_with(' ') || rest[2..2 + close].ends_with(' ')))
             {
                 flush(b, plain, i);
                 b.push(m, marker.clone());
                 let mut f = base.clone();
-                if kind == 0 {
-                    f.font_id.family = st.bold.clone();
-                } else {
-                    f.strikethrough = Stroke::new(1.0, base.color);
+                match kind {
+                    0 => f.font_id.family = st.bold.clone(),
+                    1 => f.strikethrough = Stroke::new(1.0, base.color),
+                    _ => f.background = st.mark,
                 }
                 inline(b, &rest[2..2 + close], &f, active);
                 b.push(m, marker.clone());
@@ -841,6 +852,22 @@ fn inline(b: &mut Builder<'_>, s: &str, base: &TextFormat, active: bool) {
                 plain = i;
                 continue;
             }
+        }
+
+        // #태그 (줄 맨 앞이나 띄어쓰기 뒤)
+        if c == b'#'
+            && s[..i].chars().next_back().is_none_or(char::is_whitespace)
+            && let Some((tag, len)) = crate::tags::tag_at(rest)
+        {
+            flush(b, plain, i);
+            let mut f = base.clone();
+            f.color = st.tag;
+            let start = b.chars;
+            b.push(&rest[..len], f);
+            b.decos.push(Deco::Tag { start, end: b.chars, tag: tag.to_lowercase() });
+            i += len;
+            plain = i;
+            continue;
         }
 
         // 커스텀 이모지: 문법은 늘 숨기고 그 자리에 글자만 한 그림을 그림 (decorations.rs)
@@ -923,6 +950,8 @@ mod tests {
             code_bg: Color32::LIGHT_GRAY,
             link: Color32::BLUE,
             quote: Color32::DARK_GRAY,
+            mark: Color32::YELLOW,
+            tag: Color32::GREEN,
         }
     }
 
@@ -1044,6 +1073,30 @@ mod tests {
         let p = parse_image_line(&line).unwrap();
         assert_eq!((p.alt, p.dest, p.width, p.align), ("고양이", "my cat.png", Some(55), ImgAlign::Right));
         assert_eq!(format_image_line("a", "b.png", None, ImgAlign::Left), "![a](b.png)");
+    }
+
+    #[test]
+    fn highlights_and_tags() {
+        let src = "오늘 ==중요한 일== 과 a == b, #회의 #일/2024 그리고 C#\n## 제목 #태그\n";
+        let out = run(src, None, None);
+        assert_eq!(out.job.text, src);
+        let marked: Vec<&str> = out
+            .job
+            .sections
+            .iter()
+            .filter(|sec| sec.format.background == Color32::YELLOW)
+            .map(|sec| &src[sec.byte_range.start.0..sec.byte_range.end.0])
+            .collect();
+        assert_eq!(marked, ["중요한 일"], "a == b 는 형광펜이 아님");
+        let tags: Vec<&str> = out
+            .decos
+            .iter()
+            .filter_map(|d| match d {
+                Deco::Tag { tag, .. } => Some(tag.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tags, ["회의", "일/2024", "태그"]);
     }
 
     #[test]

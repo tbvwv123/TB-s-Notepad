@@ -25,6 +25,8 @@ pub struct HighlightStyle {
     pub link: Color32,
     pub quote: Color32,
     pub accent: Color32,
+    /// `==형광펜==` 바탕
+    pub mark: Color32,
 }
 
 impl HighlightStyle {
@@ -43,6 +45,7 @@ impl HighlightStyle {
             link: c(palette.link),
             quote: c(palette.quote),
             accent: c(palette.accent),
+            mark: mix(bg, Color32::from_rgb(255, 205, 0), 0.42),
         }
     }
 
@@ -54,7 +57,17 @@ impl HighlightStyle {
         self.font.family.hash(&mut h);
         self.line_spacing.to_bits().hash(&mut h);
         self.markdown.hash(&mut h);
-        for col in [self.text, self.muted, self.heading, self.code, self.code_bg, self.link, self.quote, self.accent] {
+        for col in [
+            self.text,
+            self.muted,
+            self.heading,
+            self.code,
+            self.code_bg,
+            self.link,
+            self.quote,
+            self.accent,
+            self.mark,
+        ] {
             col.to_array().hash(&mut h);
         }
         h.finish()
@@ -244,10 +257,11 @@ fn highlight_inline(job: &mut LayoutJob, s: &str, st: &HighlightStyle, base: &Te
 
         // **굵게**, __굵게__, ~~취소선~~
         let mut matched = false;
-        for (marker, strike) in [("**", false), ("__", false), ("~~", true)] {
+        for (marker, strike) in [("**", false), ("__", false), ("~~", true), ("==", false)] {
             if rest.starts_with(marker)
                 && let Some(close) = rest[2..].find(marker)
                 && close > 0
+                && (marker != "==" || !(rest[2..].starts_with(' ') || rest[2..2 + close].ends_with(' ')))
             {
                 flush(job, plain_start, i);
                 let inner_end = i + 2 + close;
@@ -256,6 +270,8 @@ fn highlight_inline(job: &mut LayoutJob, s: &str, st: &HighlightStyle, base: &Te
                 if strike {
                     // 줄 간격을 넓히면 취소선이 글자 아래로 내려가 밑줄처럼 보이므로 흐린 색으로 표시
                     f.color = st.muted;
+                } else if marker == "==" {
+                    f.background = st.mark;
                 } else {
                     f.color = st.heading;
                 }
@@ -429,7 +445,14 @@ fn extensions_to_html(text: &str) -> String {
 
 pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
     let text = extensions_to_html(text);
-    let parser = pulldown_cmark::Parser::new_ext(&text, md_options());
+    let parser = pulldown_cmark::Parser::new_ext(&text, md_options()).map(|ev| match ev {
+        // ==형광펜== 은 CommonMark 에 없으므로 <mark> 로
+        pulldown_cmark::Event::Text(t) if t.contains("==") => match mark_html(&t) {
+            Some(html) => pulldown_cmark::Event::InlineHtml(html.into()),
+            None => pulldown_cmark::Event::Text(t),
+        },
+        ev => ev,
+    });
     let mut body = String::new();
     pulldown_cmark::html::push_html(&mut body, parser);
     let hexc = |rgb: [u8; 3]| format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
@@ -456,6 +479,7 @@ pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
   table {{ border-collapse: collapse; }}
   th, td {{ border: 1px solid {muted}88; padding: 6px 12px; }}
   img {{ max-width: 100%; }}
+  mark {{ background: #ffd54a88; color: inherit; padding: 0 .1em; border-radius: 3px; }}
   img[title="emoji"] {{ height: 1.3em; width: auto; vertical-align: -0.3em; }}
   hr {{ border: none; border-top: 1px solid {muted}88; }}
   small.subtext {{ color: {muted}; font-size: .82em; }}
@@ -478,6 +502,29 @@ pub fn to_html(text: &str, title: &str, palette: &Palette) -> String {
         accent = hexc(palette.accent),
         quote = hexc(palette.quote),
     )
+}
+
+/// 글 속의 `==형광펜==` 을 `<mark>` 로 바꾼 HTML (하나도 없으면 `None`)
+fn mark_html(t: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut rest = t;
+    let mut found = false;
+    while let Some(a) = rest.find("==") {
+        let inner = &rest[a + 2..];
+        let Some(b) = inner.find("==") else { break };
+        let body = &inner[..b];
+        if body.is_empty() || body.starts_with(' ') || body.ends_with(' ') {
+            out.push_str(&html_escape(&rest[..a + 2]));
+            rest = inner;
+            continue;
+        }
+        out.push_str(&html_escape(&rest[..a]));
+        out.push_str(&format!("<mark>{}</mark>", html_escape(body)));
+        rest = &inner[b + 2..];
+        found = true;
+    }
+    out.push_str(&html_escape(rest));
+    found.then_some(out)
 }
 
 fn html_escape(s: &str) -> String {
@@ -585,6 +632,8 @@ pub enum MdAction {
     Bold,
     Italic,
     Strike,
+    /// `==형광펜==`
+    Highlight,
     Code,
     Link,
     Heading(usize),
@@ -619,6 +668,7 @@ pub fn apply_action(text: &mut String, sel: Range<usize>, action: &MdAction) -> 
         MdAction::Bold => wrap(text, start, end, "**", "**", t!("굵은 글씨")),
         MdAction::Italic => wrap(text, start, end, "*", "*", t!("기울임")),
         MdAction::Strike => wrap(text, start, end, "~~", "~~", t!("취소선")),
+        MdAction::Highlight => wrap(text, start, end, "==", "==", t!("형광펜")),
         MdAction::Code => wrap(text, start, end, "`", "`", "code"),
         MdAction::Link => {
             let label = if start == end { t!("링크 텍스트").to_owned() } else { text[start..end].to_owned() };

@@ -53,9 +53,10 @@ Audio plays right in the note (progress bar · volume), and videos show their fi
 <tr>
 <td valign="top">
 
-### 🔗 Links between notes
+### 🔗 Links and tags
 Ctrl+click links to other notes, specific lines, headings and folders.
 Select text and right-click › **Copy hyperlink** to make a link in one step.
+Write `#tags` and gather notes by tag — search `#a #b` (both), `#a OR #b` (either), `-#a` (exclude).
 
 </td>
 <td valign="top">
@@ -159,6 +160,7 @@ Also: code blocks (```` ``` ````), HTML export, find and replace, and search acr
 | Enter · Tab / Shift+Tab | Continue a list · indent / outdent list items |
 | Ctrl+Enter | Fold / unfold a toggle |
 | Ctrl+Shift+L | Copy hyperlink to this line (or heading) |
+| Ctrl+Shift+H | `==Highlight==` |
 | Ctrl+click | Follow a link (web · note · line · folder · file) |
 | Ctrl+V | Paste (pastes the image if the clipboard only has one) |
 | Ctrl+E | Markdown source view |

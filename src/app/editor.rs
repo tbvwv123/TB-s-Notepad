@@ -377,6 +377,10 @@ impl NotepadApp {
         if let Some(url) = decorations.follow_link {
             self.follow_link(&ctx, &url);
         }
+        if let Some(tag) = decorations.follow_tag {
+            self.sidebar.show_tag(&tag);
+            self.settings.sidebar_visible = true;
+        }
         if let Some((byte, checked)) = decorations.toggle_task {
             let doc = &mut self.docs[self.active];
             if matches!(doc.text.as_bytes().get(byte), Some(b' ' | b'x' | b'X')) {
@@ -498,6 +502,8 @@ fn live_style(palette: &Palette, size: f32, row_height: f32) -> LiveStyle {
         code_bg: mix(bg, text, 0.06),
         link: c(palette.link),
         quote: c(palette.quote),
+        mark: mix(bg, Color32::from_rgb(255, 205, 0), 0.42),
+        tag: c(palette.accent),
     }
 }
 

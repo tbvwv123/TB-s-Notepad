@@ -69,15 +69,33 @@ impl NotepadApp {
 
     /// TextEdit 다음: 한글 조합 중 Enter 처럼 위에서 가로채지 못해 토글 제목 안에 줄바꿈이 들어갔으면 바로잡습니다.
     pub(super) fn repair_toggle_title(&mut self, ctx: &egui::Context, id: Id) {
-        if !self.is_document_mode() || !self.doc().text.contains("<summary>") {
+        if !self.is_document_mode() || !self.doc().text.contains("<details") {
             return;
         }
         let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()).filter(|r| r.is_empty())
         else {
             return;
         };
-        if let Some((text, cursor)) = editing::repair_split_summary(&self.doc().text, range.primary.index.0) {
+        let cursor = range.primary.index.0;
+        if let Some((text, cursor)) = editing::repair_split_summary(&self.doc().text, cursor)
+            .or_else(|| editing::repair_close_line(&self.doc().text, cursor))
+        {
             self.apply_edit(ctx, id, text, cursor..cursor);
+            return;
+        }
+        // 접힌 토글의 숨은 줄에 커서가 들어가면 토글 밖으로 (보이지 않는 곳에 글이 써지지 않게)
+        let from = self.last_cursor.filter(|(d, _)| *d == self.doc().id).map(|(_, c)| c);
+        if from != Some(cursor)
+            && let Some((text, to)) = editing::escape_folded_toggle(&self.doc().text, cursor, from)
+        {
+            if text == self.doc().text {
+                let mut state = TextEditState::load(ctx, id).unwrap_or_default();
+                state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(to))));
+                state.store(ctx, id);
+                ctx.request_repaint();
+            } else {
+                self.apply_edit(ctx, id, text, to..to);
+            }
         }
     }
 

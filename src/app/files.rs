@@ -469,6 +469,8 @@ mod tests {
             code_bg: Color32::LIGHT_GRAY,
             link: Color32::BLUE,
             quote: Color32::DARK_GRAY,
+            mark: Color32::YELLOW,
+            tag: Color32::GREEN,
         };
         let size = |_: &str| Some(egui::vec2(480.0, 200.0));
         for lang in Lang::ALL {

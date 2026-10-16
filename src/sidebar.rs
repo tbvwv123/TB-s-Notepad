@@ -66,11 +66,21 @@ pub struct Sidebar {
     expanded: HashSet<PathBuf>,
     cache: HashMap<PathBuf, (Instant, Vec<Entry>)>,
     renaming: Option<(PathBuf, String, bool)>,
-    search: Option<(String, Instant, Vec<PathBuf>)>,
+    search: Option<(String, Instant, Found)>,
     /// 뒤에서 도는 검색 (검색어, 결과 받을 곳). 한 번에 하나만 돌려서 빠르게 쳐도 디스크를 덜 씀
-    search_job: Option<(String, std::sync::mpsc::Receiver<Vec<PathBuf>>)>,
+    search_job: Option<(String, std::sync::mpsc::Receiver<Found>)>,
     /// 링크로 찾아온 폴더: 잠시 강조하고 한 번 그 자리로 스크롤
     flash: Option<(PathBuf, Instant, bool)>,
+}
+
+/// 검색 결과
+#[derive(Clone, Default)]
+struct Found {
+    notes: Vec<PathBuf>,
+    /// 태그 검색일 때: 치고 있는 태그로 시작하는 태그들 (태그, 메모 수)
+    tags: Vec<(String, usize)>,
+    /// 태그 검색식이었는지
+    tag_mode: bool,
 }
 
 pub fn is_note(path: &Path) -> bool {
@@ -102,6 +112,11 @@ impl Sidebar {
                 }
             }
         }
+    }
+
+    /// 이 태그가 붙은 메모를 모아 봅니다 (본문의 태그를 Ctrl+클릭).
+    pub fn show_tag(&mut self, tag: &str) {
+        self.query = format!("#{tag}");
     }
 
     /// 링크로 찾아온 폴더를 펼쳐서 보여 주고 잠시 강조합니다.
@@ -170,6 +185,9 @@ impl Sidebar {
         }
         if action_row(ui, Icon::Folder, t!("폴더 추가"), "", k).clicked() {
             actions.push(Action::AddRoot);
+        }
+        if action_row(ui, Icon::Tag, t!("태그 모아보기"), "", k).clicked() {
+            self.query = if self.query.trim_start().starts_with('#') { String::new() } else { "#".into() };
         }
         ui.add_space(10.0);
 
@@ -421,7 +439,7 @@ impl Sidebar {
                 let started = std::time::Instant::now();
                 let found = search_notes(&roots, &query);
                 crate::perf::record("search", started.elapsed());
-                crate::perf::set_note("search_last", format!("'{}' → {}개", query, found.len()));
+                crate::perf::set_note("search_last", format!("'{}' → {}개", query, found.notes.len()));
                 let _ = tx.send(found);
                 ctx.request_repaint();
             });
@@ -431,9 +449,36 @@ impl Sidebar {
         if searching {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
-        let results = self.search.as_ref().map(|(_, _, r)| r.clone()).unwrap_or_default();
+        let found = self.search.as_ref().map(|(_, _, r)| r.clone()).unwrap_or_default();
+        // 태그 검색: 치고 있는 태그로 시작하는 태그들 (누르면 그 태그로 채움)
+        if !found.tags.is_empty() {
+            section_label(ui, t!("태그"), k);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                ui.add_space(8.0);
+                for (tag, count) in &found.tags {
+                    let chip = egui::Button::new(RichText::new(format!("#{tag}  {count}")).size(12.5).color(k.accent))
+                        .fill(mix(k.panel, k.accent, 0.10))
+                        .corner_radius(10);
+                    if ui.add(chip).clicked() {
+                        self.query = crate::tags::complete_last(&self.query, tag);
+                        ui.memory_mut(|m| m.request_focus(egui::Id::new("sidebar_search")));
+                    }
+                }
+            });
+            ui.add_space(6.0);
+        }
+        let results = found.notes;
+        let tag_query_empty = found.tag_mode && crate::tags::TagQuery::parse(&q).is_none_or(|t| t.is_empty());
         if searching {
             section_label(ui, t!("찾는 중…"), k);
+        } else if tag_query_empty {
+            if found.tags.is_empty() {
+                hint_label(ui, t!("아직 태그가 없습니다. 글에 #태그 처럼 쓰면 됩니다."), k);
+            }
+            hint_label(ui, t!("#a #b 는 둘 다, #a OR #b 는 둘 중 하나, -#a 는 빼기"), k);
+        } else if found.tag_mode {
+            section_label(ui, &tf!("태그가 맞는 메모 {}개", results.len()), k);
         } else {
             section_label(ui, &tf!("검색 결과 {}개", results.len()), k);
         }
@@ -463,9 +508,57 @@ impl Sidebar {
     }
 }
 
-/// 메모 폴더들에서 이름 또는 내용에 `query`(소문자)가 들어간 메모. 이름이 맞는 것부터, 최대 200개.
+/// 검색어가 태그 검색식(`#a #b`, `#a OR #b` …)이면 태그로, 아니면 이름·내용으로 찾습니다.
 /// 화면을 멈추지 않도록 뒤의 스레드에서 부릅니다.
-fn search_notes(roots: &[PathBuf], query: &str) -> Vec<PathBuf> {
+fn search_notes(roots: &[PathBuf], query: &str) -> Found {
+    match crate::tags::TagQuery::parse(query) {
+        Some(tq) => search_tags(roots, &tq),
+        None => Found { notes: search_text(roots, query), ..Default::default() },
+    }
+}
+
+/// 메모 내용 (열 때와 똑같이 인코딩을 알아내 읽음, 너무 큰 파일은 건너뜀)
+fn note_text(p: &Path) -> Option<String> {
+    if std::fs::metadata(p).ok()?.len() >= 512 * 1024 {
+        return None;
+    }
+    Some(crate::encoding::decode(&std::fs::read(p).ok()?).0)
+}
+
+/// 태그 검색: 검색식에 맞는 메모(이름 순, 최대 500개)와, 치고 있는 태그로 시작하는 태그(많이 쓴 순, 최대 40개)
+fn search_tags(roots: &[PathBuf], tq: &crate::tags::TagQuery) -> Found {
+    let mut notes = Vec::new();
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut scanned = 0usize;
+    for root in roots {
+        walk(root, 0, &mut |p| {
+            scanned += 1;
+            if scanned > 20_000 || !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) {
+                return;
+            }
+            let Some(text) = note_text(p) else { return };
+            let tags = crate::tags::extract(&text);
+            for t in &tags {
+                *counts.entry(t.clone()).or_default() += 1;
+            }
+            if tq.matches(&tags) {
+                notes.push(p.to_path_buf());
+            }
+        });
+    }
+    notes.sort_by(|a, b| natural_cmp(&display_name(a, false), &display_name(b, false)));
+    notes.truncate(500);
+    let mut tags: Vec<(String, usize)> = match &tq.typing {
+        Some(prefix) => counts.into_iter().filter(|(t, _)| t.starts_with(prefix.as_str())).collect(),
+        None => Vec::new(),
+    };
+    tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    tags.truncate(40);
+    Found { notes, tags, tag_mode: true }
+}
+
+/// 메모 폴더들에서 이름 또는 내용에 `query`(소문자)가 들어간 메모. 이름이 맞는 것부터, 최대 200개.
+fn search_text(roots: &[PathBuf], query: &str) -> Vec<PathBuf> {
     let mut by_name = Vec::new();
     let mut by_content = Vec::new();
     let mut scanned = 0usize;
@@ -477,10 +570,7 @@ fn search_notes(roots: &[PathBuf], query: &str) -> Vec<PathBuf> {
             }
             if display_name(p, false).to_lowercase().contains(query) {
                 by_name.push(p.to_path_buf());
-            } else if std::fs::metadata(p).is_ok_and(|m| m.len() < 512 * 1024)
-                // 열 때와 똑같이 인코딩을 알아내 읽음 (CP949 · UTF-16 메모도 찾도록)
-                && std::fs::read(p).is_ok_and(|b| crate::encoding::decode(&b).0.to_lowercase().contains(query))
-            {
+            } else if note_text(p).is_some_and(|t| t.to_lowercase().contains(query)) {
                 by_content.push(p.to_path_buf());
             }
         });
@@ -727,6 +817,14 @@ fn section_label(ui: &mut Ui, text: &str, k: Colors) {
     );
 }
 
+/// 여러 줄로 접히는 흐린 도움말
+fn hint_label(ui: &mut Ui, text: &str, k: Colors) {
+    ui.add_space(4.0);
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 10, right: 8, top: 0, bottom: 4 }).show(ui, |ui| {
+        ui.add(egui::Label::new(RichText::new(text).size(12.0).color(k.muted)).wrap());
+    });
+}
+
 fn action_row(ui: &mut Ui, icon: Icon, label: &str, shortcut: &str, k: Colors) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     let p = ui.painter();
@@ -844,6 +942,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tag_search_with_and_or() {
+        let root = std::env::temp_dir().join(format!("tbn_tags_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("하위")).unwrap();
+        std::fs::write(root.join("가.md"), "회의 #회의 #예산").unwrap();
+        std::fs::write(root.join("하위/나.md"), "#회의 만").unwrap();
+        std::fs::write(root.join("다.md"), "#여행 #예산").unwrap();
+        std::fs::write(root.join("라.txt"), "#회의 (txt 는 태그 없음)").unwrap();
+        let names = |q: &str| -> Vec<String> {
+            search_notes(std::slice::from_ref(&root), q).notes.iter().map(|p| display_name(p, false)).collect()
+        };
+        assert_eq!(names("#회의"), ["가", "나"]);
+        assert_eq!(names("#회의 #예산"), ["가"]);
+        assert_eq!(names("#회의 or #여행"), ["가", "나", "다"]);
+        assert_eq!(names("#예산 -#여행"), ["가"]);
+        let found = search_notes(std::slice::from_ref(&root), "#");
+        assert!(found.tag_mode && found.notes.is_empty());
+        assert_eq!(found.tags[..2], [("예산".to_string(), 2), ("회의".to_string(), 2)]);
+        let found = search_notes(std::slice::from_ref(&root), "#여");
+        assert_eq!(found.tags, [("여행".to_string(), 1)]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn search_reads_legacy_encodings() {
         let root = std::env::temp_dir().join(format!("tbn_search_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -855,6 +977,7 @@ mod tests {
         std::fs::write(root.join("유니코드.txt"), utf16).unwrap();
         std::fs::write(root.join("다른 것.md"), "관계없는 글").unwrap();
         let mut found: Vec<_> = search_notes(std::slice::from_ref(&root), "예산")
+            .notes
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();

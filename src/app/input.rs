@@ -22,6 +22,9 @@ impl NotepadApp {
         if sc(cmd_shift, Key::L) {
             self.copy_line_link(ctx);
         }
+        if sc(cmd_shift, Key::H) {
+            self.pending_action = Some(MdAction::Highlight);
+        }
         for (k, lvl) in [(Key::Num1, 1), (Key::Num2, 2), (Key::Num3, 3)] {
             if sc(cmd_alt, k) {
                 self.pending_action = Some(MdAction::Heading(lvl));

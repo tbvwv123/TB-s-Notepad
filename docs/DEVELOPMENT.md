@@ -94,6 +94,7 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/app/images.rs` | Inserting/pasting images, audio, video and file links; image size/position/delete; typing next to images |
 | `src/app/edit_menu.rs` | Editor right-click menu (cut, copy, paste, select all, copy hyperlink, make link, insert note link), keeping the selection on right-click |
 | `src/emoji.rs` · `src/app/emoji_ui.rs` | Custom emoji: the `.emoji` folder, name rules, inline syntax; inserting, registering, deleting as one piece |
+| `src/tags.rs` | `#tags`: finding them in notes, the tag search expression (AND / OR / exclude), completing the tag being typed |
 | `src/app/slash.rs` | The `/` command list: command table, filtering (incl. Hangul initials), open/close/keys, running commands |
 | `src/app/note_links.rs` | Following links (open a note at a line or heading, folders in the sidebar, the rest in Explorer), copy line link, note link picker |
 | `src/app/media_cards.rs` | Audio cards (play/pause, progress bar, volume) and video cards (first frame, open in the default player), media info |

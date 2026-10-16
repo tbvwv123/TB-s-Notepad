@@ -64,6 +64,7 @@ Formatting appears as soon as you type the symbols, and the symbols only show (f
 - `**bold**` → **bold** (Ctrl+B)
 - `*italic*` → *italic* (Ctrl+I)
 - `~~strikethrough~~` → ~~strikethrough~~
+- `==highlight==` → ==highlight== (Ctrl+Shift+H)
 - `` `code` `` → `code`
 - `[link text](https://example.com)` → [link text](https://example.com) (Ctrl+K, open with **Ctrl+click**)
 - A bare address becomes a link too: https://example.com
@@ -171,6 +172,16 @@ Like on Discord, you can use your own pictures as text-sized emoji.
 - An emoji behaves like one character: a single Backspace right after it removes it.
 - The pictures live in the `.emoji` folder of your notes folder, so they sync with your notes. Notes store them as ordinary image syntax, `![:parrot:](.emoji/parrot.png "emoji")`, so other markdown apps simply show the picture.
 
+## Tags
+
+Write `#meeting` or `#work/2024` anywhere in a note and it becomes a tag, shown on a rounded background like #example.
+
+- **Ctrl+click** a tag to gather every note with that tag in the sidebar.
+- **Browse tags** in the sidebar lists all your tags (with note counts). Click one to search for it.
+- Search with several tags: `#meeting #budget` finds notes with **both**, `#meeting OR #work` (or `|`) finds **either**, and `#meeting -#done` **excludes**.
+- Searching `#work` also finds sub-tags like `#work/2024`. Case doesn't matter.
+- Numbers alone (`#1`), heading marks (`# `) and `#` inside code are not tags.
+
 ## Links between notes
 
 - **Insert note link** (Ctrl+Shift+K, or ⋯ › Edit): search by note or folder name and pick one to insert a link.
@@ -211,7 +222,7 @@ Like on Discord, you can use your own pictures as text-sized emoji.
 - Ctrl+N new note · Ctrl+O open file · Ctrl+S save · Ctrl+W close document
 - Ctrl+P search notes · Ctrl+\ sidebar · F2 rename
 - Ctrl+B bold · Ctrl+I italic · Ctrl+K link · Ctrl+Alt+1–3 headings
-- Ctrl+Shift+K insert note link · Ctrl+Shift+L copy link to this line · Ctrl+click follow a link
+- Ctrl+Shift+H highlight · Ctrl+Shift+K insert note link · Ctrl+Shift+L copy link to this line · Ctrl+click follow a link
 - `/` command list (find and run commands by name instead of shortcuts)
 - Enter continues lists · Tab / Shift+Tab indent · Ctrl+Enter folds a toggle
 - Ctrl+V paste (images too) · Ctrl+Z / Ctrl+Y undo / redo

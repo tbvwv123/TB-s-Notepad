@@ -504,6 +504,21 @@ T = {
         "移動しました · {} 件のメモのリンクを更新",
     ),
     "토글": ("Toggle", "折叠块", "トグル"),
+    "형광펜": ("Highlight", "高亮", "ハイライト"),
+    "형광펜 (Ctrl+Shift+H)": ("Highlight (Ctrl+Shift+H)", "高亮 (Ctrl+Shift+H)", "ハイライト (Ctrl+Shift+H)"),
+    "태그": ("Tags", "标签", "タグ"),
+    "태그 모아보기": ("Browse tags", "按标签查看", "タグで見る"),
+    "태그가 맞는 메모 {}개": ("{} notes with these tags", "{} 篇笔记符合标签", "タグが合うメモ {} 件"),
+    "아직 태그가 없습니다. 글에 #태그 처럼 쓰면 됩니다.": (
+        "No tags yet. Just write #tag in a note.",
+        "还没有标签。在笔记中写 #标签 即可。",
+        "まだタグがありません。本文に #タグ のように書けば OK です。",
+    ),
+    "#a #b 는 둘 다, #a OR #b 는 둘 중 하나, -#a 는 빼기": (
+        "#a #b = both, #a OR #b = either, -#a = exclude",
+        "#a #b = 都有，#a OR #b = 任一，-#a = 排除",
+        "#a #b は両方、#a OR #b はどちらか、-#a は除外",
+    ),
     "이모지": ("Emoji", "表情", "絵文字"),
     "  ↑↓ 고르기 · Enter 넣기 · Space / Esc 닫기": (
         "  ↑↓ choose · Enter insert · Space / Esc close",

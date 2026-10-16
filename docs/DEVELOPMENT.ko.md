@@ -91,6 +91,7 @@ gh attestation verify TB-Notepad.exe -R tbvwv123/TB-s-Notepad
 | `src/app/images.rs` | 그림·소리·영상·파일 링크 넣기·붙여넣기, 그림 크기·위치·삭제, 그림 앞/뒤 입력 처리 |
 | `src/app/edit_menu.rs` | 본문 오른쪽 클릭 메뉴 (잘라내기·복사·붙여넣기·모두 선택·하이퍼링크 복사·링크 만들기·메모 링크 넣기), 오른쪽 클릭에도 선택 유지 |
 | `src/emoji.rs` · `src/app/emoji_ui.rs` | 커스텀 이모지: `.emoji` 폴더, 이름 규칙, 글 속 문법 / 넣기, 등록, 한 덩어리로 지우기 |
+| `src/tags.rs` | `#태그`: 글에서 찾기, 태그 검색식(AND · OR · 빼기), 치고 있는 태그 채우기 |
 | `src/app/slash.rs` | `/` 명령 목록: 명령 표, 걸러내기(초성 포함), 열기·닫기·키 처리, 실행 |
 | `src/app/note_links.rs` | 링크 따라가기(메모 열고 줄·제목으로, 폴더는 사이드바, 그 밖은 탐색기), 이 줄 링크 복사, 메모 링크 고르기 창 |
 | `src/app/media_cards.rs` | 소리 카드(재생/멈춤·재생 막대·소리 크기)와 영상 카드(첫 장면·기본 플레이어로 열기), 파일 정보 읽기 |

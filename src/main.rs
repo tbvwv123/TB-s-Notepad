@@ -23,6 +23,7 @@ mod perf;
 mod safe_write;
 mod settings;
 mod sidebar;
+mod tags;
 mod ui_kit;
 
 use std::path::PathBuf;

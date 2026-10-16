@@ -54,6 +54,8 @@ pub(super) struct DecoOutput {
     pub follow_link: Option<String>,
     /// 누른 토글 ▶ (`<details>` 줄의 바이트)
     pub flip_toggle: Option<usize>,
+    /// Ctrl+클릭한 태그 (그 태그가 붙은 메모를 모아 봄)
+    pub follow_tag: Option<String>,
 }
 
 /// 행마다 시작 글자 위치 (`Galley::pos_from_cursor` 는 매번 처음부터 세므로 큰 문서에서 느림)
@@ -112,6 +114,7 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
             }
             Deco::Link { start, end, url } => link(ui, view, *start, *end, url, &mut out),
             Deco::Emoji { start, uri, size, .. } => emoji(ui, view, *start, uri, *size, &mut out),
+            Deco::Tag { start, end, tag } => tag_chip(ui, view, *start, *end, tag, &mut out),
             Deco::Table { rows, aligns, row_height } => table(ui, view, rows, aligns, *row_height, &mut out),
             Deco::Toggle { at, open, details_byte, depth, empty } => {
                 toggle(ui, view, *at, *open, *details_byte, *depth, *empty, &mut out)
@@ -313,6 +316,32 @@ fn rule(v: &DecoView<'_>, at: usize, out: &mut DecoOutput) {
             [egui::pos2(v.text_left, y), egui::pos2(v.text_right, y)],
             Stroke::new(1.0, mix(v.bg, v.text, 0.2)),
         ));
+    }
+}
+
+/// `#태그`: 글자 아래에 둥근 바탕, Ctrl+클릭하면 모아 보기
+fn tag_chip(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, tag: &str, out: &mut DecoOutput) {
+    let (a, b) = (v.pos(start), v.pos(end));
+    if (a.top() - b.top()).abs() > 1.0 {
+        return; // 줄이 바뀌며 나뉜 태그는 바탕 없이
+    }
+    let h = (a.height() * 0.78).min(v.font_size * 1.35);
+    let r = egui::Rect::from_min_max(
+        egui::pos2(a.left() - 1.0, a.center().y - h / 2.0),
+        egui::pos2(b.left() + 1.0, a.center().y + h / 2.0),
+    );
+    if !r.intersects(v.clip) {
+        return;
+    }
+    out.bg.push(Shape::rect_filled(r, h / 2.0, mix(v.bg, v.accent, 0.13)));
+    if !ui.input(|i| i.modifiers.command) {
+        return;
+    }
+    if ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p)) {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if v.clicked_at.is_some_and(|p| r.contains(p)) {
+        out.follow_tag = Some(tag.to_owned());
     }
 }
 

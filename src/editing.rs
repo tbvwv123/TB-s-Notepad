@@ -267,6 +267,50 @@ pub fn repair_split_summary(text: &str, cursor: usize) -> Option<(String, usize)
     enter_in_summary(&joined, cursor - 1)
 }
 
+/// 닫는 줄 `</details>` 뒤에 글이 붙었으면 (`</details>글`) 다음 줄로 떼어 냅니다.
+/// 붙은 채로 두면 닫는 줄로 알아보지 못해 토글이 깨지므로.
+pub fn repair_close_line(text: &str, cursor: usize) -> Option<(String, usize)> {
+    let byte = char_to_byte(text, cursor);
+    let line = line_at(text, byte);
+    let raw = &text[line.clone()];
+    let indent = raw.len() - raw.trim_start().len();
+    let rest = raw.trim_start().strip_prefix(TOGGLE_CLOSE)?;
+    if rest.trim().is_empty() {
+        return None;
+    }
+    let split = line.start + indent + TOGGLE_CLOSE.len();
+    let mut out = text.to_owned();
+    out.insert(split, '\n');
+    Some((out, if byte >= split { cursor + 1 } else { cursor }))
+}
+
+/// 접힌 토글이 숨긴 줄(내용 · 닫는 줄)에 커서가 들어가면 옮길 자리.
+/// 아래에서 올라왔으면(`from` 이 토글 뒤) 제목 끝, 그 밖(위에서 내려옴 · 토글 아래를 누름)은 토글 다음 줄 처음.
+/// 토글이 문서 끝이면 다음 줄을 새로 만듭니다. 숨은 줄에 글을 쓰면 보이지 않거나 `</details>` 에 붙어 토글이 깨지므로.
+pub fn escape_folded_toggle(text: &str, cursor: usize, from: Option<usize>) -> Option<(String, usize)> {
+    let line_of = |ci: usize| text[..char_to_byte(text, ci)].matches('\n').count();
+    let line = line_of(cursor);
+    let toggles = crate::live::find_toggles(text);
+    // 접혀서 이 줄을 숨기는 가장 바깥 토글
+    let t = toggles.iter().filter(|t| !t.open && line > t.summary && line <= t.close).min_by_key(|t| t.details)?;
+    let starts: Vec<usize> = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    if from.is_some_and(|f| line_of(f) > t.close) {
+        let s = starts[t.summary];
+        let e = text[s..].find('\n').map_or(text.len(), |i| s + i);
+        let title = summary_line(&text[s..e])?;
+        return Some((text.to_owned(), byte_to_char(text, s + title.end)));
+    }
+    match starts.get(t.close + 1) {
+        Some(&next) => Some((text.to_owned(), byte_to_char(text, next))),
+        None => {
+            let mut out = text.to_owned();
+            out.push('\n');
+            let c = out.chars().count();
+            Some((out, c))
+        }
+    }
+}
+
 /// `details_line` 바이트에서 시작하는 `<details …>` 줄의 open 을 바꿉니다.
 pub fn set_toggle_open(text: &mut String, details_line: usize, open: bool) -> bool {
     if details_line > text.len() {
@@ -311,6 +355,37 @@ mod tests {
         // 제목 줄이 아니면 그대로
         assert!(enter_in_summary("<summary>A</summary>", 10).is_none(), "<details> 없이는 토글 아님");
         assert!(enter_in_summary(t, 2).is_none());
+    }
+
+    #[test]
+    fn typing_below_a_folded_toggle() {
+        let t = "앞\n<details>\n<summary>제목</summary>\n\n내용\n\n</details>";
+        let end = t.chars().count();
+        // 토글 아래(문서 끝)를 눌러 숨은 닫는 줄 끝에 커서가 감 → 새 줄을 만들어 그리로
+        let (out, c) = escape_folded_toggle(t, end, None).unwrap();
+        assert_eq!(out, format!("{t}\n"));
+        assert_eq!(c, out.chars().count());
+        // 다음 줄이 있으면 그 줄 처음으로
+        let t2 = format!("{t}\n뒤");
+        let (out, c) = escape_folded_toggle(&t2, end - 3, Some(1)).unwrap();
+        assert_eq!(out, t2);
+        assert_eq!(out.chars().skip(c).collect::<String>(), "뒤");
+        // 아래에서 올라왔으면 제목 끝
+        let (_, c) = escape_folded_toggle(&t2, end - 3, Some(t2.chars().count())).unwrap();
+        assert_eq!(t2.chars().take(c).collect::<String>(), "앞\n<details>\n<summary>제목");
+        // 펼친 토글 · 토글 밖은 그대로
+        assert!(escape_folded_toggle(&t2.replace("<details>", "<details open>"), end, None).is_none());
+        assert!(escape_folded_toggle(&t2, 1, None).is_none());
+    }
+
+    #[test]
+    fn text_glued_to_close_line_moves_down() {
+        let t = "<details open>\n<summary>a</summary>\n\n</details>abc";
+        let (out, c) = repair_close_line(t, t.chars().count()).unwrap();
+        assert_eq!(out, "<details open>\n<summary>a</summary>\n\n</details>\nabc");
+        assert_eq!(c, out.chars().count());
+        assert!(repair_close_line("</details>", 10).is_none());
+        assert!(repair_close_line("</details>  ", 12).is_none());
     }
 
     #[test]
