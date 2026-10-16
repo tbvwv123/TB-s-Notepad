@@ -62,6 +62,26 @@ pub fn colors(ui: &Ui) -> Colors {
     }
 }
 
+/// 그림(`uri`)을 `rect` 에 그릴 모양. `fit` 이면 비율을 지켜 `rect` 안에 가운데로.
+/// 아직 불러오는 중이면 `Ok(None)`, 그림이 없거나 읽지 못하면 `Err(())`.
+#[allow(clippy::result_unit_err)]
+pub fn image_shape(ctx: &egui::Context, uri: &str, rect: Rect, fit: bool) -> Result<Option<Shape>, ()> {
+    match ctx.try_load_texture(uri, egui::TextureOptions::LINEAR, egui::SizeHint::default()) {
+        Ok(egui::load::TexturePoll::Ready { texture }) => {
+            let s = texture.size;
+            let r = if fit && s.x > 0.0 && s.y > 0.0 {
+                Rect::from_center_size(rect.center(), s * (rect.width() / s.x).min(rect.height() / s.y))
+            } else {
+                rect
+            };
+            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+            Ok(Some(Shape::image(texture.id, r, uv, Color32::WHITE)))
+        }
+        Ok(egui::load::TexturePoll::Pending { .. }) => Ok(None),
+        Err(_) => Err(()),
+    }
+}
+
 pub fn paint_icon(p: &Painter, rect: Rect, icon: Icon, color: Color32, bg: Color32) {
     let c = rect.center();
     let s = rect.width().min(rect.height()) * 0.5; // 반지름 단위

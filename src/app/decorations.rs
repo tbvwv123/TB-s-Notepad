@@ -360,12 +360,8 @@ fn twemoji(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, idx: usize, size
     if !r.intersects(v.clip) {
         return;
     }
-    let uri = crate::twemoji::uri(idx);
-    if let Ok(egui::load::TexturePoll::Ready { texture }) =
-        ui.ctx().try_load_texture(&uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
-    {
-        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        out.fg.push(Shape::image(texture.id, r, uv, Color32::WHITE));
+    if let Ok(Some(shape)) = ui_kit::image_shape(ui.ctx(), &crate::twemoji::uri(idx), r, false) {
+        out.fg.push(shape);
     }
 }
 
@@ -380,15 +376,9 @@ fn emoji(ui: &Ui, v: &DecoView<'_>, start: usize, uri: &str, size: f32, out: &mu
     if !slot.intersects(v.clip) {
         return;
     }
-    match ui.ctx().try_load_texture(uri, egui::TextureOptions::LINEAR, egui::SizeHint::default()) {
-        Ok(egui::load::TexturePoll::Ready { texture }) => {
-            let s = texture.size;
-            let scale = if s.x > 0.0 && s.y > 0.0 { (size / s.x).min(size / s.y) } else { 1.0 };
-            let r = egui::Rect::from_center_size(slot.center(), s * scale);
-            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            out.fg.push(Shape::image(texture.id, r, uv, Color32::WHITE));
-        }
-        Ok(egui::load::TexturePoll::Pending { .. }) => {}
+    match ui_kit::image_shape(ui.ctx(), uri, slot, true) {
+        Ok(Some(shape)) => out.fg.push(shape),
+        Ok(None) => {}
         // 그림이 없거나 못 읽으면 빈 칸 표시
         Err(_) => out.fg.push(Shape::rect_stroke(
             slot.shrink(2.0),
@@ -425,11 +415,9 @@ fn image(ui: &mut Ui, v: &DecoView<'_>, img: &ImageDeco<'_>, out: &mut DecoOutpu
     }
     let ctx = ui.ctx().clone();
     if img.kind == MediaKind::Image
-        && let Ok(egui::load::TexturePoll::Ready { texture }) =
-            ctx.try_load_texture(img.uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
+        && let Ok(Some(shape)) = ui_kit::image_shape(&ctx, img.uri, r, false)
     {
-        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        out.fg.push(Shape::image(texture.id, r, uv, Color32::WHITE));
+        out.fg.push(shape);
     }
 
     // 그림이 있는 줄 전체를 눌러도 그림 선택 (경로 글자에 커서가 들어가지 않게)

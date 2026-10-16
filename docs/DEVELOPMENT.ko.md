@@ -110,7 +110,10 @@ gh attestation verify TB-Notepad.exe -R tbvwv123/TB-s-Notepad
 | `src/media.rs` | 소리·영상 종류 판별, 소리 재생기(rodio), Windows 셸 썸네일, 로컬 파일 링크 해석 |
 | `src/links.rs` | 메모 사이 링크 풀기(경로 · `#L12` 줄 · `#제목`), 제목 비교용 slug, 상대 경로 만들기, 붙여넣은 링크를 상대 경로로 |
 | `src/live.rs` | 문서 모드 배치: 기호 숨기기, 서식 적용, 목록 점·체크박스·표·그림 등 꾸밈 정보 |
-| `src/sidebar.rs` | 폴더 트리, 검색, 이름 바꾸기, 휴지통 삭제, 기본 메모 폴더 |
+| `src/sidebar/mod.rs` | 폴더 트리, 정렬, 고정 · 숨김 · 끌어서 정한 순서, 이름 바꾸기, 끌어서 옮기기 |
+| `src/sidebar/search.rs` | 이름 · 내용 검색과 태그 검색, 검색 결과 |
+| `src/sidebar/widgets.rs` | 사이드바 줄 · 머리 · 아이콘 단추 · 검색 칸 · 정렬 창 |
+| `src/sidebar/fsutil.rs` | 메모 파일 판별, 폴더 훑기, 자연스러운 이름 순서, 휴지통, 기본 메모 폴더 |
 | `src/document.rs` | 문서 상태, 열기·저장, 밖에서 바뀐 것 알아채기 |
 | `src/encoding.rs` | 텍스트 인코딩: BOM · UTF-8 · 옛 인코딩 감지(chardetng)와 변환 |
 | `src/safe_write.rs` | 안전한 파일 바꿔 쓰기(임시 파일 → 교체, 교체가 막히면 직접 저장만 백업해 두고 제자리 쓰기, 자동 저장은 원본을 두고 다시 시도) |

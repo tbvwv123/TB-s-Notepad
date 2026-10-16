@@ -354,7 +354,7 @@ impl NotepadApp {
         self.slash_menu(&ctx, id, typed_trigger, caret_rect, editor_focused, slash_key);
         self.auto_toggle(&ctx, id, typed_space);
         self.edited |= edited_now;
-        self.repair_toggle_title(&ctx, id);
+        self.after_edit_fixes(&ctx, id);
         if let Some((path, at)) = dropped_note {
             let mut state = TextEditState::load(&ctx, id).unwrap_or_default();
             state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(at))));

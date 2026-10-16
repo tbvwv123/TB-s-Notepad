@@ -24,7 +24,7 @@ impl NotepadApp {
             return;
         }
         // 한글 조합 중에 Enter 를 가로채면 조합하던 글자가 다음 줄로 가므로 건드리지 않고,
-        // TextEdit 이 줄바꿈을 넣은 뒤에 목록 기호를 붙임 (repair_toggle_title)
+        // TextEdit 이 줄바꿈을 넣은 뒤에 목록 기호를 붙임 (after_edit_fixes)
         if ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Ime(_)))) {
             self.ime_enter = ctx.input(|i| i.key_pressed(Key::Enter));
             return;
@@ -84,8 +84,9 @@ impl NotepadApp {
         }
     }
 
-    /// TextEdit 다음: 한글 조합 중 Enter 처럼 위에서 가로채지 못해 토글 제목 안에 줄바꿈이 들어갔으면 바로잡습니다.
-    pub(super) fn repair_toggle_title(&mut self, ctx: &egui::Context, id: Id) {
+    /// TextEdit 다음에 바로잡는 것들: 번호 목록 다시 매기기, 한글 조합 중 Enter 로 깨진 토글 제목 · 닫는 줄 ·
+    /// 목록 이어 쓰기, 접힌 토글의 숨은 줄에 들어간 커서.
+    pub(super) fn after_edit_fixes(&mut self, ctx: &egui::Context, id: Id) {
         let edited = std::mem::take(&mut self.edited);
         let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()).filter(|r| r.is_empty())
         else {

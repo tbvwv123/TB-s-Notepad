@@ -113,7 +113,10 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/media.rs` | Audio/video detection, audio player (rodio), Windows shell thumbnails, local file link resolution |
 | `src/links.rs` | Parsing note links (path · `#L12` line · `#heading`), heading slugs, relative paths, relativizing pasted links |
 | `src/live.rs` | Document-view layout: hiding symbols, applying styles, decoration info for bullets, checkboxes, tables, images… |
-| `src/sidebar.rs` | Folder tree, search, rename, Recycle Bin delete, default notes folder |
+| `src/sidebar/mod.rs` | Folder tree, sorting, pins / hidden items / drag order, rename, drag to move |
+| `src/sidebar/search.rs` | Name / content search and tag search, search results |
+| `src/sidebar/widgets.rs` | Sidebar rows, headers, icon buttons, search box, sort popup |
+| `src/sidebar/fsutil.rs` | Note files, folder walking, natural name order, Recycle Bin, default notes folder |
 | `src/document.rs` | Document state, loading/saving, noticing changes made outside the app |
 | `src/encoding.rs` | Text encodings: BOM / UTF-8 / legacy detection (chardetng) and conversion |
 | `src/safe_write.rs` | Safe file replacement (temp file → replace; if replacing is blocked, manual saves write in place behind a backup while autosave leaves the file alone and retries) |

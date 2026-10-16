@@ -644,25 +644,15 @@ fn popup_ui(
                             Item::Emoji(j) => {
                                 let e = &menu.emoji[j];
                                 let uri = crate::markdown::file_uri(&e.path);
-                                if let Ok(egui::load::TexturePoll::Ready { texture }) =
-                                    ctx.try_load_texture(&uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
-                                {
-                                    let s = texture.size;
-                                    let scale = if s.x > 0.0 && s.y > 0.0 { (24.0 / s.x).min(24.0 / s.y) } else { 1.0 };
-                                    let r = egui::Rect::from_center_size(badge.center(), s * scale);
-                                    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                                    p.image(texture.id, r, uv, Color32::WHITE);
+                                if let Ok(Some(shape)) = ui_kit::image_shape(ctx, &uri, badge.shrink(1.0), true) {
+                                    p.add(shape);
                                 }
                                 (format!(":{}:", e.name), "")
                             }
                             Item::Builtin(i) => {
                                 let uri = crate::twemoji::uri(i);
-                                if let Ok(egui::load::TexturePoll::Ready { texture }) =
-                                    ctx.try_load_texture(&uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
-                                {
-                                    let r = egui::Rect::from_center_size(badge.center(), egui::vec2(22.0, 22.0));
-                                    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                                    p.image(texture.id, r, uv, Color32::WHITE);
+                                if let Ok(Some(shape)) = ui_kit::image_shape(ctx, &uri, badge.shrink(2.0), true) {
+                                    p.add(shape);
                                 }
                                 (format!(":{}:", crate::twemoji::TWEMOJI[i].0), "")
                             }
