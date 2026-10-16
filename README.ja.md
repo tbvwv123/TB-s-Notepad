@@ -221,3 +221,5 @@ cargo test
 ## ライセンス
 
 [MIT](LICENSE) © 2026 TBvwv123
+
+絵文字の画像: [Twemoji](https://github.com/jdecked/twemoji) (CC-BY 4.0) — [assets/twemoji/NOTICE.md](assets/twemoji/NOTICE.md) を参照。

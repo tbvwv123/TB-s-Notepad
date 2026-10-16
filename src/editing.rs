@@ -189,6 +189,98 @@ pub fn toggle_at_cursor(text: &str, cursor: usize) -> Option<usize> {
     toggle_open_line(&text[prev.clone()]).map(|_| prev.start)
 }
 
+/// `1. ` · `1) ` 번호 항목이면 (들여쓰기 바이트 수, 번호, 번호 자릿수)
+fn number_item(line: &str) -> Option<(usize, u64, usize)> {
+    let body = line.trim_start_matches([' ', '\t']);
+    let indent = line.len() - body.len();
+    let d = body.bytes().take_while(u8::is_ascii_digit).count();
+    if !(1..=9).contains(&d) || !matches!(body.as_bytes().get(d), Some(b'.' | b')')) {
+        return None;
+    }
+    let after = &body[d + 1..];
+    if !(after.is_empty() || after.starts_with(' ')) {
+        return None;
+    }
+    Some((indent, body[..d].parse().ok()?, d))
+}
+
+/// 커서가 있는 번호 목록(같은 들여쓰기 단계)의 번호를 첫 항목부터 1씩 늘려 다시 매깁니다.
+/// 중간에 항목을 넣거나 지우면 뒤 번호가 따라 바뀝니다. 더 들여쓴 줄(하위 목록 · 이어지는 글)은 건너뛰고,
+/// 빈 줄이나 덜 들여쓴 줄에서 목록이 끝납니다. 바꿀 것이 없으면 `None`.
+pub fn renumber_list_at(text: &str, cursor: usize) -> Option<(String, usize)> {
+    let byte = char_to_byte(text, cursor);
+    let cur = line_at(text, byte);
+    let (level, _, _) = number_item(&text[cur.clone()])?;
+    let indent_of = |l: &str| l.len() - l.trim_start_matches([' ', '\t']).len();
+    // 이 줄이 목록에 들어가는지: Some(true) 번호 항목, Some(false) 하위 줄, None 목록 끝
+    let belongs = |l: &str| -> Option<bool> {
+        if l.trim().is_empty() {
+            return None;
+        }
+        let ind = indent_of(l);
+        match ind.cmp(&level) {
+            std::cmp::Ordering::Less => None,
+            std::cmp::Ordering::Greater => Some(false),
+            std::cmp::Ordering::Equal => number_item(l).map(|_| true),
+        }
+    };
+    let mut first = cur.clone();
+    while first.start > 0 {
+        let prev = line_at(text, first.start - 1);
+        if belongs(&text[prev.clone()]).is_none() {
+            break;
+        }
+        first = prev;
+    }
+    // 번호 항목들의 (번호 바이트 범위, 번호)
+    let mut items = Vec::new();
+    let mut l = first;
+    loop {
+        match belongs(&text[l.clone()]) {
+            None => break,
+            Some(true) => {
+                let (ind, n, d) = number_item(&text[l.clone()])?;
+                items.push((l.start + ind..l.start + ind + d, n));
+            }
+            Some(false) => {}
+        }
+        if l.end >= text.len() {
+            break;
+        }
+        l = line_at(text, l.end + 1);
+    }
+    let start = items.first()?.1;
+    let mut out = text.to_owned();
+    let mut shift: isize = 0;
+    let mut changed = false;
+    for (i, (range, n)) in items.iter().enumerate().rev() {
+        let want = start + i as u64;
+        if *n == want {
+            continue;
+        }
+        let new = want.to_string();
+        if range.end <= byte {
+            shift += new.len() as isize - range.len() as isize;
+        }
+        out.replace_range(range.clone(), &new);
+        changed = true;
+    }
+    // 번호는 ASCII 숫자라 바이트 차이 = 글자 차이
+    changed.then(|| (out, (cursor as isize + shift).max(0) as usize))
+}
+
+/// 한글 조합 중 Enter 처럼 목록 이어 쓰기 없이 TextEdit 이 줄바꿈만 넣었으면 (커서 바로 앞이 그 줄바꿈)
+/// 그 줄바꿈을 되돌리고 [`enter_in_list`] 처럼 다음 항목 기호를 붙입니다.
+pub fn repair_list_enter(text: &str, cursor: usize) -> Option<(String, usize)> {
+    let byte = char_to_byte(text, cursor);
+    if byte == 0 || text.as_bytes()[byte - 1] != b'\n' {
+        return None;
+    }
+    let mut joined = text.to_owned();
+    joined.remove(byte - 1);
+    enter_in_list(&joined, cursor - 1)
+}
+
 /// 토글 제목에서 Enter (Notion 처럼): 제목은 한 줄 그대로 두고, 커서 뒤의 글자를 데리고 토글 안 첫 줄로 내려갑니다.
 /// 접혀 있으면 폅니다. 제목 줄이 아니면 `None`.
 /// (제목 안에 줄바꿈이 들어가면 `<summary>` 가 여러 줄로 나뉘어 토글이 깨지므로)
@@ -418,6 +510,40 @@ mod tests {
         assert_eq!(run("- 사과\n- ", 7), Some(("- 사과\n".into(), 5)));
         assert_eq!(run("- 사과\n  - ", 9), Some(("- 사과\n- ".into(), 7)));
         assert_eq!(run("- [ ] ", 6), Some(("".into(), 0)));
+    }
+
+    #[test]
+    fn enter_during_hangul_composition_continues_list() {
+        // 조합 중 Enter 로 TextEdit 이 줄바꿈만 넣은 직후
+        assert_eq!(repair_list_enter("1. 하나\n", 6), Some(("1. 하나\n2. ".into(), 9)));
+        assert_eq!(repair_list_enter("- [ ] 일\n", 8), Some(("- [ ] 일\n- [ ] ".into(), 14)));
+        assert_eq!(repair_list_enter("그냥 글\n", 5), None);
+        assert_eq!(repair_list_enter("1. 하나", 5), None, "줄바꿈이 없으면 그대로");
+    }
+
+    #[test]
+    fn renumbers_the_list_under_the_cursor() {
+        // 중간에 항목을 넣으면 뒤 번호가 밀림
+        let t = "1. 하나\n2. 새것\n2. 둘\n3. 셋";
+        let c = "1. 하나\n2. 새것".chars().count();
+        let (out, c2) = renumber_list_at(t, c).unwrap();
+        assert_eq!(out, "1. 하나\n2. 새것\n3. 둘\n4. 셋");
+        assert_eq!(c2, c);
+        // 지우면 당겨짐, 시작 번호는 지킴, 하위 목록은 따로
+        let t = "5) 다섯\n7) 일곱\n   1. 안쪽\n   1. 안쪽 둘\n9) 아홉\n\n1. 다른 목록";
+        let (out, _) = renumber_list_at(t, 3).unwrap();
+        assert_eq!(out, "5) 다섯\n6) 일곱\n   1. 안쪽\n   1. 안쪽 둘\n7) 아홉\n\n1. 다른 목록");
+        let inner = "5) 다섯\n7) 일곱\n   1. 안쪽".chars().count();
+        let (out, _) = renumber_list_at(t, inner).unwrap();
+        assert!(out.contains("   1. 안쪽\n   2. 안쪽 둘"));
+        // 9 → 10 처럼 자릿수가 바뀌면 커서도 따라감
+        let t = "8. a\n9. b\n9. c\nx";
+        let (out, c2) = renumber_list_at(t, t.chars().count() - 3).unwrap();
+        assert_eq!(out, "8. a\n9. b\n10. c\nx");
+        assert_eq!(c2, out.chars().count() - 3);
+        // 이미 맞거나 번호 줄이 아니면 그대로
+        assert!(renumber_list_at("1. a\n2. b", 2).is_none());
+        assert!(renumber_list_at("그냥 글", 1).is_none());
     }
 
     #[test]

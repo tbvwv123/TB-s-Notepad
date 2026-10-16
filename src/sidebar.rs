@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, FontId, Rect, Response, RichText, Sense, TextEdit, Ui, pos2, vec2};
 
+use crate::folder_meta::{self, FolderMeta, rel_key};
 use crate::settings::{SidebarSort, SortKey, SortOrder, mix};
 use crate::ui_kit::{self, Colors, Icon};
 
@@ -97,6 +98,12 @@ pub struct Sidebar {
     sort: SidebarSort,
     /// 정렬 드롭다운을 펼쳐 둔 메모 폴더
     sort_open: Option<PathBuf>,
+    /// 정렬을 한 번이라도 받았는지 (바뀌면 끌어서 정한 순서를 지움)
+    sort_seen: bool,
+    /// 메모 폴더마다 고정 · 숨김 · 순서 (읽은 때와 함께)
+    meta: HashMap<PathBuf, (Instant, FolderMeta)>,
+    /// 숨긴 메모 · 폴더도 보이기
+    show_hidden: bool,
 }
 
 /// 검색 결과
@@ -123,6 +130,56 @@ impl Sidebar {
     pub fn invalidate(&mut self) {
         self.cache.clear();
         self.search = None;
+        self.meta.clear();
+    }
+
+    /// 메모 폴더의 고정 · 숨김 · 순서 (몇 초마다 파일에서 다시 읽음: 다른 PC 에서 바꾼 것도 반영)
+    fn meta_of(&mut self, root: &Path) -> &mut FolderMeta {
+        let stale = self.meta.get(root).is_none_or(|(t, _)| t.elapsed() > Duration::from_secs(5));
+        if stale {
+            self.meta.insert(root.to_path_buf(), (Instant::now(), FolderMeta::load(root)));
+        }
+        &mut self.meta.get_mut(root).expect("방금 넣음").1
+    }
+
+    fn save_meta(&mut self, root: &Path) {
+        if let Some((t, m)) = self.meta.get_mut(root) {
+            m.save(root);
+            *t = Instant::now();
+        }
+    }
+
+    /// 사이드바 밖에서 옮기거나 이름을 바꿈: 고정 · 숨김 · 순서가 따라갑니다
+    pub fn path_moved(&mut self, roots: &[PathBuf], from: &Path, to: &Path) {
+        let (Some(fr), Some(tr)) =
+            (folder_meta::root_of(roots, from).cloned(), folder_meta::root_of(roots, to).cloned())
+        else {
+            return;
+        };
+        let (Some(fk), Some(tk)) = (rel_key(&fr, from), rel_key(&tr, to)) else { return };
+        if fr == tr {
+            self.meta_of(&fr).moved(&fk, &tk);
+        } else {
+            let old = self.meta_of(&fr).clone();
+            self.meta_of(&tr).adopt(&old, &fk, &tk);
+            self.meta_of(&fr).removed(&fk);
+            self.save_meta(&tr);
+        }
+        self.save_meta(&fr);
+    }
+
+    /// 휴지통으로 옮김
+    pub fn path_removed(&mut self, roots: &[PathBuf], path: &Path) {
+        let Some(root) = folder_meta::root_of(roots, path).cloned() else { return };
+        let Some(key) = rel_key(&root, path) else { return };
+        self.meta_of(&root).removed(&key);
+        self.save_meta(&root);
+    }
+
+    fn is_hidden_path(&mut self, roots: &[PathBuf], path: &Path) -> bool {
+        let Some(root) = folder_meta::root_of(roots, path).cloned() else { return false };
+        let key = rel_key(&root, path).unwrap_or_default();
+        self.meta_of(&root).is_hidden(&key)
     }
 
     /// 이 파일이 보이도록 상위 폴더들을 펼칩니다.
@@ -194,13 +251,47 @@ impl Sidebar {
         out
     }
 
-    /// 폴더 내용을 지금 정렬대로
-    fn sorted_entries(&mut self, dir: &Path, skip_name: &str) -> Vec<Entry> {
+    /// 폴더 내용을 보일 순서대로: 정렬 → 끌어서 정한 순서 → 고정한 것을 맨 위로. 숨긴 것은 빼거나 (보이기면) 둠
+    fn sorted_entries(&mut self, root: &Path, dir: &Path, skip_name: &str) -> Vec<Entry> {
         let mut entries = self.entries(dir, skip_name);
         sort_entries(&mut entries, self.sort);
+        let show_hidden = self.show_hidden;
+        let meta = self.meta_of(root).clone();
+        let key = |e: &Entry| rel_key(root, &e.path).unwrap_or_default();
+        if !show_hidden {
+            entries.retain(|e| !meta.is_hidden(&key(e)));
+        }
+        if let Some(order) = meta.order.get(&rel_key(root, dir).unwrap_or_default()) {
+            let pos = |e: &Entry| order.iter().position(|n| *n == file_name(&e.path)).unwrap_or(usize::MAX);
+            // 폴더가 위인 것은 그대로, 정한 순서에 없는 것은 정렬 순서대로 뒤에 (안정 정렬)
+            entries.sort_by_key(|e| (!e.is_dir, pos(e)));
+        }
+        entries.sort_by_key(|e| meta.pinned.iter().position(|p| *p == key(e)).unwrap_or(usize::MAX));
         entries
     }
 
+    /// 같은 폴더 안에서 끌어 놓아 순서를 바꿈: `item` 을 `target` 앞(`before`)이나 뒤로.
+    /// 둘 다 고정한 것이면 고정 순서를, 아니면 이 폴더의 순서를 바꿉니다.
+    fn reorder(&mut self, root: &Path, dir: &Path, shown: &[PathBuf], item: &Path, target: &Path, before: bool) {
+        let (Some(ik), Some(tk), Some(dk)) = (rel_key(root, item), rel_key(root, target), rel_key(root, dir)) else {
+            return;
+        };
+        let meta = self.meta_of(root);
+        if meta.is_pinned(&ik) && meta.is_pinned(&tk) {
+            meta.pinned.retain(|k| *k != ik);
+            let at = meta.pinned.iter().position(|k| *k == tk).unwrap_or(0) + usize::from(!before);
+            meta.pinned.insert(at.min(meta.pinned.len()), ik);
+        } else {
+            let mut names: Vec<String> = shown.iter().map(|p| file_name(p)).filter(|n| *n != file_name(item)).collect();
+            let at =
+                names.iter().position(|n| *n == file_name(target)).map_or(names.len(), |i| i + usize::from(!before));
+            names.insert(at, file_name(item));
+            meta.set_order(&dk, names);
+        }
+        self.save_meta(root);
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut Ui,
@@ -209,10 +300,22 @@ impl Sidebar {
         loose: &[LooseDoc],
         image_folder: &str,
         sort: &mut SidebarSort,
+        show_hidden: &mut bool,
     ) -> Vec<Action> {
         let k = ui_kit::colors(ui);
         let mut actions = Vec::new();
+        // 정렬을 바꾸면 끌어서 정한 순서는 지움 (고정은 그대로)
+        if self.sort_seen && self.sort != *sort {
+            for root in roots {
+                if !self.meta_of(root).order.is_empty() {
+                    self.meta_of(root).order.clear();
+                    self.save_meta(root);
+                }
+            }
+        }
         self.sort = *sort;
+        self.sort_seen = true;
+        self.show_hidden = *show_hidden;
 
         // 검색 칸
         search_box(ui, &mut self.query, k);
@@ -239,7 +342,8 @@ impl Sidebar {
                 section_label(ui, t!("열린 문서"), k);
                 for d in loose {
                     let label = if d.title.is_empty() { t!("제목 없음").to_owned() } else { d.title.clone() };
-                    let resp = tree_row(ui, 0, RowIcon::Note, &label, d.active, d.dirty, k);
+                    let mark = RowMark { dirty: d.dirty, ..Default::default() };
+                    let resp = tree_row(ui, 0, RowIcon::Note, &label, d.active, mark, k);
                     let close = hover_icon(ui, &resp, Icon::Close, t!("닫기"), k);
                     if close {
                         actions.push(Action::CloseDoc(d.id));
@@ -299,6 +403,10 @@ impl Sidebar {
                     }
                 }
                 header.context_menu(|ui| {
+                    if ui.checkbox(show_hidden, t!("숨긴 메모 · 폴더 보이기")).clicked() {
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui.button(t!("새 메모")).clicked() {
                         actions.push(Action::NewNote(root.clone()));
                         ui.close();
@@ -325,7 +433,7 @@ impl Sidebar {
                     if !root.exists() {
                         ui.label(RichText::new(t!("    폴더를 찾을 수 없습니다")).small().weak());
                     } else {
-                        self.tree(ui, root, 0, active, image_folder, &mut actions, k);
+                        self.tree(ui, root, root, 0, active, image_folder, &mut actions, k);
                     }
                 }
                 ui.add_space(10.0);
@@ -333,6 +441,14 @@ impl Sidebar {
             if roots.is_empty() {
                 ui.label(RichText::new(t!("'폴더 추가'로 메모를 모아 둘 폴더를 고르세요.")).small().weak());
             }
+            // 빈 곳을 오른쪽 클릭: 숨긴 것 보이기
+            let rest = vec2(ui.available_width(), ui.available_height().max(80.0));
+            let (_, blank) = ui.allocate_exact_size(rest, Sense::click());
+            blank.context_menu(|ui| {
+                if ui.checkbox(show_hidden, t!("숨긴 메모 · 폴더 보이기")).clicked() {
+                    ui.close();
+                }
+            });
             drag_ghost(ui, k);
         });
         actions
@@ -342,6 +458,7 @@ impl Sidebar {
     fn tree(
         &mut self,
         ui: &mut Ui,
+        root: &Path,
         dir: &Path,
         depth: usize,
         active: Option<&Path>,
@@ -349,11 +466,20 @@ impl Sidebar {
         actions: &mut Vec<Action>,
         k: Colors,
     ) {
-        let entries = self.sorted_entries(dir, image_folder);
+        let entries = self.sorted_entries(root, dir, image_folder);
         if entries.is_empty() && depth == 0 {
             ui.label(RichText::new(t!("    아직 메모가 없습니다")).small().weak());
         }
+        let shown: Vec<PathBuf> = entries.iter().map(|e| e.path.clone()).collect();
+        // (옮길 것, 기준, 앞에) · (경로, 고정이면 true · 숨김이면 false, 켬)
+        let mut reorder: Option<(PathBuf, PathBuf, bool)> = None;
+        let mut flag: Option<(String, bool, bool)> = None;
         for e in entries {
+            let key = rel_key(root, &e.path).unwrap_or_default();
+            let (pinned, hidden) = {
+                let m = self.meta_of(root);
+                (m.is_pinned(&key), m.hidden.contains(&key))
+            };
             let is_active = active.is_some_and(|a| a == e.path);
             let open = e.is_dir && self.expanded.contains(&e.path);
 
@@ -390,12 +516,41 @@ impl Sidebar {
 
             let icon = if e.is_dir { RowIcon::Folder { open } } else { RowIcon::Note };
             let flashing = self.flashing(&e.path);
-            let resp = tree_row(ui, depth, icon, &e.name, is_active || flashing, false, k);
+            let mark = RowMark { dirty: false, pinned, dim: hidden };
+            let resp = tree_row(ui, depth, icon, &e.name, is_active || flashing, mark, k);
             self.scroll_to_flash(&e.path, &resp);
-            // 끌어서 다른 폴더로 옮기기: 폴더에 놓으면 그 안으로, 메모에 놓으면 그 메모가 있는 폴더로
             resp.dnd_set_drag_payload(e.path.clone());
-            let drop_dir = if e.is_dir { e.path.clone() } else { dir.to_path_buf() };
-            drop_target(ui, &resp, &drop_dir, actions, k);
+            // 같은 폴더의 것을 위 · 아래 가장자리에 놓으면 순서 바꾸기 (폴더는 가운데에 놓으면 그 안으로 옮기기)
+            let zone = resp
+                .dnd_hover_payload::<PathBuf>()
+                .filter(|from| from.parent() == Some(dir) && **from != e.path)
+                .and_then(|_| ui.input(|i| i.pointer.hover_pos()))
+                .and_then(|p| {
+                    let t = (p.y - resp.rect.top()) / resp.rect.height();
+                    if !e.is_dir {
+                        Some(t < 0.5)
+                    } else if t < 0.3 {
+                        Some(true)
+                    } else if t > 0.7 {
+                        Some(false)
+                    } else {
+                        None
+                    }
+                });
+            if let Some(before) = zone {
+                let y = if before { resp.rect.top() } else { resp.rect.bottom() };
+                ui.painter().line_segment(
+                    [pos2(resp.rect.left() + 8.0, y), pos2(resp.rect.right() - 8.0, y)],
+                    egui::Stroke::new(2.0, k.accent),
+                );
+                if let Some(from) = resp.dnd_release_payload::<PathBuf>() {
+                    reorder = Some(((*from).clone(), e.path.clone(), before));
+                }
+            } else {
+                // 끌어서 다른 폴더로 옮기기: 폴더에 놓으면 그 안으로, 메모에 놓으면 그 메모가 있는 폴더로
+                let drop_dir = if e.is_dir { e.path.clone() } else { dir.to_path_buf() };
+                drop_target(ui, &resp, &drop_dir, actions, k);
+            }
             if e.is_dir {
                 let plus = hover_icon(ui, &resp, Icon::Plus, t!("이 폴더에 새 메모"), k);
                 if plus {
@@ -448,14 +603,35 @@ impl Sidebar {
                     ui.close();
                 }
                 ui.separator();
+                if ui.button(if pinned { t!("고정 풀기") } else { t!("상단에 고정") }).clicked() {
+                    flag = Some((key.clone(), true, !pinned));
+                    ui.close();
+                }
+                if ui.button(if hidden { t!("숨김 풀기") } else { t!("숨기기") }).clicked() {
+                    flag = Some((key.clone(), false, !hidden));
+                    ui.close();
+                }
+                ui.separator();
                 if ui.button(t!("휴지통으로 옮기기")).clicked() {
                     actions.push(Action::Delete(e.path.clone()));
                     ui.close();
                 }
             });
             if open {
-                self.tree(ui, &e.path, depth + 1, active, image_folder, actions, k);
+                self.tree(ui, root, &e.path, depth + 1, active, image_folder, actions, k);
             }
+        }
+        if let Some((item, target, before)) = reorder {
+            self.reorder(root, dir, &shown, &item, &target, before);
+        }
+        if let Some((key, is_pin, on)) = flag {
+            let m = self.meta_of(root);
+            if is_pin {
+                m.set_pinned(&key, on)
+            } else {
+                m.set_hidden(&key, on)
+            }
+            self.save_meta(root);
         }
     }
 
@@ -549,8 +725,14 @@ impl Sidebar {
             section_label(ui, &tf!("검색 결과 {}개", results.len()), k);
         }
         for p in results {
+            // 숨긴 메모는 검색에도 (보이기를 켜지 않았으면) 나오지 않음
+            let hidden = self.is_hidden_path(roots, &p);
+            if hidden && !self.show_hidden {
+                continue;
+            }
             let name = display_name(&p, false);
-            let resp = tree_row(ui, 0, RowIcon::Note, &name, active == Some(p.as_path()), false, k);
+            let mark = RowMark { dim: hidden, ..Default::default() };
+            let resp = tree_row(ui, 0, RowIcon::Note, &name, active == Some(p.as_path()), mark, k);
             let folder = p.parent().map(|d| d.display().to_string()).unwrap_or_default();
             let resp = resp.on_hover_text(folder);
             if resp.clicked() {
@@ -769,7 +951,22 @@ fn drag_ghost(ui: &Ui, k: Colors) {
     painter.galley(rect.min + vec2(8.0, 4.0), galley, k.text);
 }
 
-fn tree_row(ui: &mut Ui, depth: usize, icon: RowIcon, label: &str, active: bool, dirty: bool, k: Colors) -> Response {
+/// 줄 오른쪽 · 글자에 붙는 표시
+#[derive(Clone, Copy, Default)]
+struct RowMark {
+    /// 저장 안 됨 (점)
+    dirty: bool,
+    /// 상단 고정 (핀)
+    pinned: bool,
+    /// 숨긴 것 (흐리게)
+    dim: bool,
+}
+
+fn file_name(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn tree_row(ui: &mut Ui, depth: usize, icon: RowIcon, label: &str, active: bool, mark: RowMark, k: Colors) -> Response {
     // 누르기와 끌기(다른 폴더로 옮기기)를 함께 받음
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
     if !ui.is_rect_visible(rect) {
@@ -804,11 +1001,17 @@ fn tree_row(ui: &mut Ui, depth: usize, icon: RowIcon, label: &str, active: bool,
         }
     }
     let text_color = if active { k.text } else { mix(k.text, k.panel, 0.12) };
+    let text_color = if mark.dim { mix(text_color, k.panel, 0.55) } else { text_color };
     let max_w = rect.right() - (x + 20.0) - 34.0;
     let galley = elided(ui, label, 13.5, max_w, text_color);
     ui.painter().galley(pos2(x + 20.0, cy - galley.size().y / 2.0), galley, text_color);
-    if dirty {
+    if mark.dirty {
         ui.painter().circle_filled(pos2(rect.right() - 14.0, cy), 3.0, k.accent);
+    } else if mark.pinned {
+        // 핀: 머리 · 바늘
+        let c = pos2(rect.right() - 14.0, cy - 2.0);
+        ui.painter().circle_filled(c, 3.2, k.muted);
+        ui.painter().line_segment([c, c + vec2(0.0, 7.0)], egui::Stroke::new(1.4, k.muted));
     }
     resp
 }

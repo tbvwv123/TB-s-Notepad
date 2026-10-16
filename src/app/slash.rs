@@ -151,11 +151,40 @@ fn trigger_start(text: &str, cursor: usize, trigger: char) -> Option<usize> {
     let prev = if start == 0 { None } else { before.next() };
     let ch = if start == 0 { text.chars().next() } else { before.next() };
     // 이모지는 띄어 쓰지 않고 이어 넣을 수 있게, 이모지 바로 뒤의 `:` 도 엶
+    // 커스텀 이모지나 기본 이모지 바로 뒤 (이모지를 띄어 쓰지 않고 이어 넣을 수 있게)
     let after_emoji = || {
+        let before = &text[..markdown::char_to_byte(text, start)];
         trigger == ':'
-            && text[..markdown::char_to_byte(text, start)].ends_with(&format!("\"{}\")", crate::emoji::TITLE))
+            && (before.ends_with(&format!("\"{}\")", crate::emoji::TITLE))
+                || prev.is_some_and(|c| c == '\u{fe0f}' || crate::twemoji::at(c.encode_utf8(&mut [0; 4])).is_some()))
     };
-    (ch == Some(trigger) && (prev.is_none_or(char::is_whitespace) || after_emoji())).then_some(start)
+    // 토글 제목 맨 앞 (`<summary>` 바로 뒤)
+    let title_start = || text[..markdown::char_to_byte(text, start)].ends_with("<summary>");
+    (ch == Some(trigger) && (prev.is_none_or(char::is_whitespace) || after_emoji() || title_start())).then_some(start)
+}
+
+/// 커서 앞의 낱말이 `/` 나 `:` 로 시작해 목록을 열 자리면 (그 글자, 위치).
+/// 한 프레임에 여러 글자가 함께 들어와도 (`:thu`) 열리도록 커서 바로 앞 글자만 보지 않고 낱말 처음을 봅니다.
+fn word_trigger(text: &str, cursor: usize) -> Option<(char, usize)> {
+    let byte = markdown::char_to_byte(text, cursor);
+    let word_start = text[..byte].rfind(char::is_whitespace).map_or(0, |i| i + 1);
+    let mut word = &text[word_start..byte];
+    // 토글 제목 맨 앞 (`<summary>` 바로 뒤)이나 이모지 바로 뒤도 낱말 처음으로 봄
+    for prefix in ["<summary>", "\"emoji\")"] {
+        if let Some(rest) = word.strip_prefix(prefix) {
+            word = rest;
+        }
+    }
+    while let Some((_, len)) = crate::twemoji::at(word) {
+        word = &word[len..];
+    }
+    let n = word.chars().count();
+    let first = word.chars().next()?;
+    if !matches!(first, '/' | ':') || n > 33 {
+        return None;
+    }
+    let start = cursor - n;
+    trigger_start(text, start + 1, first).map(|s| (first, s))
 }
 
 /// 열려 있는 목록의 지금 검색어. 여는 글자가 지워졌거나 띄어쓰기가 들어가면 `None` (목록 닫기).
@@ -192,7 +221,10 @@ impl MenuKind {
 #[derive(Clone, Copy, PartialEq)]
 enum Item {
     Cmd(usize),
+    /// 이 메모 폴더의 커스텀 이모지
     Emoji(usize),
+    /// 기본 이모지 (트위모지)
+    Builtin(usize),
     /// 그림 파일을 골라 새 이모지 등록
     AddEmoji,
 }
@@ -226,8 +258,11 @@ impl SlashMenu {
         match self.kind {
             MenuKind::Commands => filter(query).into_iter().map(Item::Cmd).collect(),
             MenuKind::Emoji => {
+                // 커스텀 이모지가 먼저, 그다음 기본 이모지 (검색어가 없으면 기본 이모지는 앞쪽 몇 개만)
                 let mut v: Vec<Item> =
                     crate::emoji::filter(&self.emoji, query).into_iter().take(50).map(Item::Emoji).collect();
+                let room = if query.is_empty() { 24usize } else { 60 }.saturating_sub(v.len());
+                v.extend(crate::twemoji::filter(query).into_iter().take(room).map(Item::Builtin));
                 if self.explicit || !v.is_empty() {
                     v.push(Item::AddEmoji);
                 }
@@ -242,7 +277,8 @@ impl SlashMenu {
         match self.kind {
             MenuKind::Commands => true,
             MenuKind::Emoji => {
-                self.explicit || (!query.is_empty() && items.iter().any(|i| matches!(i, Item::Emoji(_))))
+                self.explicit
+                    || (!query.is_empty() && items.iter().any(|i| matches!(i, Item::Emoji(_) | Item::Builtin(_))))
             }
         }
     }
@@ -298,12 +334,12 @@ impl NotepadApp {
     }
 
     /// TextEdit 다음: 목록을 열고 닫고, 그리고, 고른 것을 실행합니다.
-    /// `typed`: 이번 프레임에 친 `/` 나 `:`
+    /// `typed`: 이번 프레임에 글자를 쳤는지
     pub(super) fn slash_menu(
         &mut self,
         ctx: &egui::Context,
         id: Id,
-        typed: Option<char>,
+        typed: bool,
         caret: Option<egui::Rect>,
         focused: bool,
         key: Option<MenuKey>,
@@ -314,19 +350,19 @@ impl NotepadApp {
             self.slash = None;
             return;
         }
-        // 새로 열기 (`:` 는 이 메모 폴더에 이모지가 있을 때만)
-        if let Some(ch) = typed
+        // 새로 열기 (커서 앞 낱말이 `/` · `:` 로 시작할 때, 또는 이모지 바로 뒤에 `:` 를 쳤을 때)
+        if typed
             && focused
+            && self.slash.as_ref().is_none_or(|m| m.doc_id != doc_id)
             && let Some(c) = cursor
-            && let Some(start) = trigger_start(&self.doc().text, c, ch)
+            && let Some((ch, start)) = word_trigger(&self.doc().text, c)
+                .or_else(|| ['/', ':'].into_iter().find_map(|ch| Some((ch, trigger_start(&self.doc().text, c, ch)?))))
         {
             if ch == '/' {
                 self.slash = Some(SlashMenu::new(doc_id, start, MenuKind::Commands, false, Vec::new()));
             } else {
                 let emoji = self.emoji_list();
-                if !emoji.is_empty() {
-                    self.slash = Some(SlashMenu::new(doc_id, start, MenuKind::Emoji, false, emoji));
-                }
+                self.slash = Some(SlashMenu::new(doc_id, start, MenuKind::Emoji, false, emoji));
             }
         }
         let Some(menu) = &mut self.slash else { return };
@@ -344,13 +380,14 @@ impl NotepadApp {
         // `:이름:` 을 끝까지 치면 바로 그 이모지로 (맞는 이름이 없으면 그냥 글자로 두고 닫음)
         if menu.kind == MenuKind::Emoji && query.contains(':') {
             let start = menu.start;
-            let hit = query
-                .strip_suffix(':')
-                .and_then(|name| menu.emoji.iter().find(|e| e.name.eq_ignore_ascii_case(name)))
-                .cloned();
+            let name = query.strip_suffix(':');
+            let hit = name.and_then(|name| menu.emoji.iter().find(|e| e.name.eq_ignore_ascii_case(name))).cloned();
+            let builtin = name.and_then(crate::twemoji::find);
             self.slash = None;
             if let Some(e) = hit {
                 self.insert_emoji(ctx, id, start..cursor, &e);
+            } else if let Some(i) = builtin {
+                self.replace_typed(ctx, id, start..cursor, crate::twemoji::TWEMOJI[i].1);
             }
             return;
         }
@@ -398,11 +435,26 @@ impl NotepadApp {
                     self.insert_emoji(ctx, id, start..cursor, &e);
                 }
             }
+            Item::Builtin(i) => self.replace_typed(ctx, id, start..cursor, crate::twemoji::TWEMOJI[i].1),
             Item::AddEmoji => {
                 self.remove_typed(ctx, id, start..cursor);
                 self.add_emoji_dialog(&query, Some(start));
             }
         }
+    }
+
+    /// 친 글자(`:검색어`)를 `text` 로 바꾸고 커서를 그 뒤로
+    fn replace_typed(&mut self, ctx: &egui::Context, id: Id, typed: Range<usize>, text: &str) {
+        let doc = &mut self.docs[self.active];
+        let (a, b) = (markdown::char_to_byte(&doc.text, typed.start), markdown::char_to_byte(&doc.text, typed.end));
+        doc.text.replace_range(a..b, text);
+        doc.mark_changed();
+        let mut state = TextEditState::load(ctx, id).unwrap_or_default();
+        let end = typed.start + text.chars().count();
+        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end))));
+        state.store(ctx, id);
+        self.focus_editor = true;
+        ctx.request_repaint();
     }
 
     /// 목록을 열려고 친 글자(`/검색어`)를 지우고 커서를 그 자리에
@@ -473,6 +525,24 @@ impl NotepadApp {
                 self.slash = Some(SlashMenu::new(self.doc().id, at, MenuKind::Emoji, true, emoji));
                 None
             }
+        };
+        // 토글 제목 줄: 줄 맨 앞에 기호를 붙이면 <summary> 앞에 붙어 토글이 깨지므로
+        // 제목은 제목 글자 앞에 `## ` 를 넣고, 다른 줄 서식은 하지 않음
+        let in_title = crate::editing::toggle_at_cursor(&self.doc().text, typed.start).is_some();
+        let action = match action {
+            Some(MdAction::Heading(l)) if in_title => Some(MdAction::Insert(format!("{} ", "#".repeat(l)))),
+            Some(
+                MdAction::Bullet
+                | MdAction::Numbered
+                | MdAction::Task
+                | MdAction::Quote
+                | MdAction::Subtext
+                | MdAction::Toggle
+                | MdAction::CodeBlock
+                | MdAction::Table
+                | MdAction::Rule,
+            ) if in_title => None,
+            a => a,
         };
         // 바로 적용: 서식 도구와 달리 줄을 선택해 두지 않고, 커서를 기호 바로 뒤에 둬서 이어 쓰게 합니다.
         if let Some(action) = action {
@@ -585,6 +655,17 @@ fn popup_ui(
                                 }
                                 (format!(":{}:", e.name), "")
                             }
+                            Item::Builtin(i) => {
+                                let uri = crate::twemoji::uri(i);
+                                if let Ok(egui::load::TexturePoll::Ready { texture }) =
+                                    ctx.try_load_texture(&uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
+                                {
+                                    let r = egui::Rect::from_center_size(badge.center(), egui::vec2(22.0, 22.0));
+                                    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                                    p.image(texture.id, r, uv, Color32::WHITE);
+                                }
+                                (format!(":{}:", crate::twemoji::TWEMOJI[i].0), "")
+                            }
                             Item::AddEmoji => {
                                 text_badge("+");
                                 let name = crate::emoji::clean_name(query);
@@ -665,8 +746,19 @@ mod tests {
         assert_eq!(trigger_start("오늘 :", 4, ':'), Some(3));
         assert_eq!(trigger_start("시간:", 3, ':'), None, "낱말 뒤의 : 는 그냥 글자");
         assert_eq!(trigger_start("글 /", 3, ':'), None);
+        assert_eq!(trigger_start("<summary>/", 10, '/'), Some(9), "토글 제목 맨 앞");
         let after = "![:a:](a.png \"emoji\"):";
         assert_eq!(trigger_start(after, after.chars().count(), ':'), Some(after.chars().count() - 1), "이모지 바로 뒤");
+    }
+
+    #[test]
+    fn opens_even_when_several_chars_arrive_at_once() {
+        assert_eq!(word_trigger(":thu", 4), Some((':', 0)));
+        assert_eq!(word_trigger("글 /표", 4), Some(('/', 2)));
+        assert_eq!(word_trigger("시간:3", 4), None, "낱말 가운데의 : 는 아님");
+        assert_eq!(word_trigger("a/b", 3), None);
+        assert_eq!(word_trigger("<summary>:ta", 12), Some((':', 9)), "토글 제목 맨 앞");
+        assert_eq!(word_trigger("👍❤️:ta", 6), Some((':', 3)), "기본 이모지 바로 뒤");
     }
 
     #[test]

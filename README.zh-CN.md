@@ -221,3 +221,5 @@ cargo test
 ## 许可证
 
 [MIT](LICENSE) © 2026 TBvwv123
+
+表情图片：[Twemoji](https://github.com/jdecked/twemoji)（CC-BY 4.0）—— 见 [assets/twemoji/NOTICE.md](assets/twemoji/NOTICE.md)。

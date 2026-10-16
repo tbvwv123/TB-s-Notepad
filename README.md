@@ -221,3 +221,5 @@ UI text lives in `scripts/i18n_strings.py`; run `python scripts/gen-i18n.py` aft
 ## License
 
 [MIT](LICENSE) © 2026 TBvwv123
+
+Emoji graphics: [Twemoji](https://github.com/jdecked/twemoji) (CC-BY 4.0) — see [assets/twemoji/NOTICE.md](assets/twemoji/NOTICE.md).

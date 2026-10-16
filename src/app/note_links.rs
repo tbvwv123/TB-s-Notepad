@@ -159,7 +159,7 @@ impl NotepadApp {
     }
 
     /// 고른 메모·폴더로 가는 링크를 커서 자리에 넣습니다 (가능하면 상대 경로).
-    fn insert_note_link(&mut self, path: &Path, is_dir: bool) {
+    pub(super) fn insert_note_link(&mut self, path: &Path, is_dir: bool) {
         let os = if is_dir { path.file_name() } else { path.file_stem() };
         let name = os.map(|s| s.to_string_lossy().replace(['[', ']'], "")).unwrap_or_default();
         let dest =

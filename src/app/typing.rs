@@ -10,6 +10,7 @@ impl NotepadApp {
         let doc = &mut self.docs[self.active];
         doc.text = text;
         doc.mark_changed();
+        self.edited = true;
         let mut state = TextEditState::load(ctx, id).unwrap_or_default();
         state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(sel.start), CCursor::new(sel.end))));
         state.store(ctx, id);
@@ -22,14 +23,30 @@ impl NotepadApp {
         if !self.doc().is_markdown() || !ctx.memory(|m| m.has_focus(id)) || self.slash_is_open() {
             return;
         }
-        // 한글 조합 중에 Enter 를 가로채면 조합하던 글자가 다음 줄로 가므로 건드리지 않음
+        // 한글 조합 중에 Enter 를 가로채면 조합하던 글자가 다음 줄로 가므로 건드리지 않고,
+        // TextEdit 이 줄바꿈을 넣은 뒤에 목록 기호를 붙임 (repair_toggle_title)
         if ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Ime(_)))) {
+            self.ime_enter = ctx.input(|i| i.key_pressed(Key::Enter));
             return;
         }
         let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()) else { return };
         let r = range.as_sorted_char_range();
         let sel = r.start.0..r.end.0;
         let pressed = |m: Modifiers, k: Key| ctx.input(|i| i.modifiers.matches_exact(m) && i.key_pressed(k));
+
+        // 글머리 · 할 일의 글 시작에서 Backspace: 기호를 지워 보통 줄로 (숨은 기호를 한 글자씩 지우면 목록이 깨지므로)
+        if pressed(Modifiers::NONE, Key::Backspace)
+            && sel.is_empty()
+            && self.is_document_mode()
+            && let Some(&(s0, e0)) = marker_spans(self.doc()).iter().find(|(_, e0)| *e0 == sel.start)
+        {
+            ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Backspace));
+            let mut text = self.doc().text.clone();
+            let (a, b) = (markdown::char_to_byte(&text, s0), markdown::char_to_byte(&text, e0));
+            text.replace_range(a..b, "");
+            self.apply_edit(ctx, id, text, s0..s0);
+            return;
+        }
 
         // 토글 제목에서 Enter: 제목에 줄바꿈을 넣지 않고 토글 안 첫 줄로
         if pressed(Modifiers::NONE, Key::Enter)
@@ -69,16 +86,28 @@ impl NotepadApp {
 
     /// TextEdit 다음: 한글 조합 중 Enter 처럼 위에서 가로채지 못해 토글 제목 안에 줄바꿈이 들어갔으면 바로잡습니다.
     pub(super) fn repair_toggle_title(&mut self, ctx: &egui::Context, id: Id) {
-        if !self.is_document_mode() || !self.doc().text.contains("<details") {
-            return;
-        }
+        let edited = std::mem::take(&mut self.edited);
         let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()).filter(|r| r.is_empty())
         else {
             return;
         };
         let cursor = range.primary.index.0;
+        // 번호 목록에서 항목을 넣거나 지우면 번호를 다시 매김 (글을 고친 프레임에만)
+        if edited
+            && self.doc().is_markdown()
+            && let Some((text, c)) = editing::renumber_list_at(&self.doc().text, cursor)
+        {
+            self.apply_edit(ctx, id, text, c..c);
+            self.edited = false;
+            return;
+        }
+        if !self.is_document_mode() {
+            return;
+        }
+        let ime_enter = std::mem::take(&mut self.ime_enter);
         if let Some((text, cursor)) = editing::repair_split_summary(&self.doc().text, cursor)
             .or_else(|| editing::repair_close_line(&self.doc().text, cursor))
+            .or_else(|| ime_enter.then(|| editing::repair_list_enter(&self.doc().text, cursor)).flatten())
         {
             self.apply_edit(ctx, id, text, cursor..cursor);
             return;
@@ -86,6 +115,7 @@ impl NotepadApp {
         // 접힌 토글의 숨은 줄에 커서가 들어가면 토글 밖으로 (보이지 않는 곳에 글이 써지지 않게)
         let from = self.last_cursor.filter(|(d, _)| *d == self.doc().id).map(|(_, c)| c);
         if from != Some(cursor)
+            && self.doc().text.contains("<details")
             && let Some((text, to)) = editing::escape_folded_toggle(&self.doc().text, cursor, from)
         {
             if text == self.doc().text {

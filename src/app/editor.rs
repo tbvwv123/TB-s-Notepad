@@ -57,9 +57,8 @@ impl NotepadApp {
         // / 명령 목록이 열려 있으면 ↑↓ · Enter · Esc 는 목록이 받음
         let slash_key = if ctx.memory(|m| m.has_focus(id)) { self.slash_keys(&ctx, id) } else { None };
         // 방금 친 `/` (명령 목록) 나 `:` (이모지 목록)
-        let typed_trigger = ['/', ':']
-            .into_iter()
-            .find(|&ch| ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t.ends_with(ch)))));
+        // 이번 프레임에 글자를 쳤는지 (`/` · `:` 목록을 열지 보려고)
+        let typed_trigger = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if !t.is_empty())));
         let typed_space = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if t == " ")));
         // 목록 이어 쓰기 · 들여쓰기 · 토글 접기 (TextEdit 이 Enter/Tab 을 받기 전에)
         self.editing_keys(&ctx, id);
@@ -132,6 +131,9 @@ impl NotepadApp {
         let mut editor_top = f32::NEG_INFINITY;
         // 화면에서 커서 자리 (/ 명령 목록을 그 아래에 띄움)
         let mut caret_rect = None;
+        let mut edited_now = false;
+        // 사이드바에서 끌어다 놓은 메모 · 폴더: (경로, 놓은 글자 위치)
+        let mut dropped_note: Option<(PathBuf, usize)> = None;
 
         let scroll = if wrap { ScrollArea::vertical() } else { ScrollArea::both() };
         scroll.id_salt(("editor_scroll", doc.id)).auto_shrink([false, false]).show(ui, |ui| {
@@ -182,11 +184,26 @@ impl NotepadApp {
                 let response = &output.response.response;
                 if response.changed() {
                     doc.mark_changed();
+                    edited_now = true;
                 }
                 editor_focused = response.has_focus();
 
                 let galley = &output.galley;
                 let origin = (output.galley_pos - egui::vec2(galley.rect.left(), 0.0)).to_vec2();
+                // 사이드바의 메모 · 폴더를 끌어다 놓으면 그 자리에 링크 (놓을 자리에 세로선)
+                if response.dnd_hover_payload::<PathBuf>().is_some()
+                    && let Some(p) = ui.input(|i| i.pointer.hover_pos())
+                {
+                    let c = galley.cursor_from_pos(p - output.galley_pos);
+                    let r = galley.pos_from_cursor(c).translate(output.galley_pos.to_vec2());
+                    ui.painter().line_segment([r.left_top(), r.left_bottom()], Stroke::new(2.0, accent));
+                }
+                if let Some(path) = response.dnd_release_payload::<PathBuf>()
+                    && let Some(p) = ui.input(|i| i.pointer.interact_pos())
+                {
+                    let c = galley.cursor_from_pos(p - output.galley_pos);
+                    dropped_note = Some(((*path).clone(), c.index.0));
+                }
                 let full = response.rect;
                 let clip = ui.clip_rect();
                 editor_top = clip.top();
@@ -265,7 +282,8 @@ impl NotepadApp {
                         [Key::ArrowUp, Key::ArrowDown, Key::PageUp, Key::PageDown].into_iter().any(|k| i.key_pressed(k))
                     });
                     let snapped = snap_out_of_images(range, &decorations.image_rects, last_cursor, vertical)
-                        .or_else(|| snap_out_of_emoji(range, &emoji_spans(doc), last_cursor));
+                        .or_else(|| snap_out_of_emoji(range, &emoji_spans(doc), last_cursor))
+                        .or_else(|| snap_past_markers(range, &marker_spans(doc), last_cursor, &doc.text));
                     if let Some(snapped) = snapped {
                         let mut st = output.state.clone();
                         st.cursor.set_char_range(Some(snapped));
@@ -335,7 +353,15 @@ impl NotepadApp {
 
         self.slash_menu(&ctx, id, typed_trigger, caret_rect, editor_focused, slash_key);
         self.auto_toggle(&ctx, id, typed_space);
+        self.edited |= edited_now;
         self.repair_toggle_title(&ctx, id);
+        if let Some((path, at)) = dropped_note {
+            let mut state = TextEditState::load(&ctx, id).unwrap_or_default();
+            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(at))));
+            state.store(&ctx, id);
+            let is_dir = path.is_dir();
+            self.insert_note_link(&path, is_dir);
+        }
         if let Some(what) = menu_pick
             && let Some((d, sel)) = self.menu_sel.take()
             && d == doc_id
@@ -601,6 +627,38 @@ fn snap_out_of_emoji(
     })
 }
 
+/// 글머리 · 체크박스 기호(와 그 앞 들여쓰기)는 한 덩어리: 커서가 그 안에 서면 글 시작으로 옮깁니다
+/// (기호 앞에 글을 쓰면 목록이 깨지고, 숨은 글자마다 → 를 눌러야 해서). 글 시작에서 ← 면 앞 줄 끝으로.
+/// `spans`: (기호 시작, 글 시작) 글자 위치, 앞에서부터 차례로
+fn snap_past_markers(
+    range: CCursorRange,
+    spans: &[(usize, usize)],
+    last_cursor: Option<usize>,
+    text: &str,
+) -> Option<CCursorRange> {
+    let p = range.primary.index.0;
+    let &(s0, e0) = spans.get(spans.partition_point(|(_, e0)| *e0 <= p))?;
+    // 기호가 있는 줄의 시작 (기호 앞은 들여쓰기 칸뿐이어야 함)
+    let s_byte = markdown::char_to_byte(text, s0);
+    let line_start_byte = text[..s_byte].rfind('\n').map_or(0, |i| i + 1);
+    if !text[line_start_byte..s_byte].chars().all(|c| c == ' ' || c == '\t') {
+        return None;
+    }
+    let line_start = s0 - text[line_start_byte..s_byte].chars().count();
+    if p < line_start {
+        return None;
+    }
+    let target = if last_cursor == Some(e0) { line_start.saturating_sub(1) } else { e0 };
+    if target == p {
+        return None;
+    }
+    Some(if range.is_empty() {
+        CCursorRange::one(CCursor::new(target))
+    } else {
+        CCursorRange { primary: CCursor::new(target), ..range }
+    })
+}
+
 /// 상태 표시줄용 줄·열·선택 글자 수
 fn cursor_info_at(text: &str, range: CCursorRange) -> CursorInfo {
     let r = range.as_sorted_char_range();
@@ -696,6 +754,24 @@ mod tests {
         assert!(snap_out_of_images(one(5), &imgs, Some(4), false).is_none());
         assert!(snap_out_of_images(one(10), &imgs, Some(3), true).is_none());
         assert!(snap_out_of_images(one(40), &imgs, Some(39), false).is_none());
+    }
+
+    #[test]
+    fn cursor_skips_list_markers() {
+        let text = "앞 줄\n- [ ] 할 일\n  - 들여쓴 항목\n";
+        // 둘째 줄은 4번째 글자에서 시작: 기호 4..10, 글 10부터 / 셋째 줄(14부터)은 들여쓰기 14..16, 기호 16..18
+        let spans = [(4, 10), (16, 18)];
+        let one = |p| CCursorRange::one(CCursor::new(p));
+        let at = |r: Option<CCursorRange>| r.map(|r| r.primary.index.0);
+        let snap = |p, last| at(snap_past_markers(one(p), &spans, last, text));
+        assert_eq!(snap(4, Some(3)), Some(10), "앞 줄에서 → 로 오면 바로 글 시작");
+        assert_eq!(snap(7, None), Some(10), "체크박스를 누르면 글 시작");
+        assert_eq!(snap(4, Some(13)), Some(10), "Home");
+        assert_eq!(snap(9, Some(10)), Some(3), "글 시작에서 ← 면 앞 줄 끝");
+        assert_eq!(snap(15, None), Some(18), "들여쓰기 칸도 기호 덩어리");
+        assert_eq!(snap(17, Some(18)), Some(13), "들여쓴 항목에서 ← 면 앞 줄 끝");
+        assert_eq!(snap(10, None), None);
+        assert_eq!(snap(2, None), None);
     }
 
     #[test]

@@ -222,8 +222,10 @@ impl NotepadApp {
         let roots = self.settings.roots.clone();
         let folder = self.settings.image_folder.clone();
         let mut sort = self.settings.sidebar_sort;
-        let actions = self.sidebar.show(ui, &roots, active.as_deref(), &loose, &folder, &mut sort);
+        let mut show_hidden = self.settings.sidebar_show_hidden;
+        let actions = self.sidebar.show(ui, &roots, active.as_deref(), &loose, &folder, &mut sort, &mut show_hidden);
         self.settings.sidebar_sort = sort;
+        self.settings.sidebar_show_hidden = show_hidden;
         self.handle_sidebar(&ctx, actions);
     }
 

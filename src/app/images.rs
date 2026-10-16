@@ -320,6 +320,20 @@ pub(super) fn image_spans(doc: &Document) -> Vec<(usize, usize, usize)> {
         .collect()
 }
 
+/// 문서 모드에서 글머리 · 할 일 기호의 (기호 시작, 글 시작) 글자 위치. 그 사이에는 커서가 서지 않게 합니다.
+pub(super) fn marker_spans(doc: &Document) -> Vec<(usize, usize)> {
+    let Some((_, _, decos, _)) = &doc.live_cache else { return Vec::new() };
+    decos
+        .iter()
+        .filter_map(|d| match d {
+            Deco::Bullet { at, text_at, .. } => Some((*at, *text_at)),
+            // 체크박스 앞의 "- " 두 글자부터
+            Deco::Task { at, text_at, .. } => Some((at.saturating_sub(2), *text_at)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// 문서 모드에서 글 속 이모지들의 (시작 글자, 끝 글자)
 pub(super) fn emoji_spans(doc: &Document) -> Vec<(usize, usize)> {
     let Some((_, _, decos, _)) = &doc.live_cache else { return Vec::new() };

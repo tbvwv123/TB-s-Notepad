@@ -11,6 +11,7 @@ mod document;
 mod editing;
 mod emoji;
 mod encoding;
+mod folder_meta;
 mod fonts;
 mod history;
 mod links;
@@ -24,6 +25,8 @@ mod safe_write;
 mod settings;
 mod sidebar;
 mod tags;
+mod twemoji;
+mod twemoji_table;
 mod ui_kit;
 
 use std::path::PathBuf;

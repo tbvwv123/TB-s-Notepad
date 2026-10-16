@@ -35,6 +35,9 @@ A light, easy notepad where formatting shows up as you type. This one note cover
 - **Drag a note or folder** in the sidebar onto another folder to move it. Images and links in the note, and links in other notes pointing to it, are updated too.
 - Open files from elsewhere by dragging them onto the window or with ⋯ › Open file (Ctrl+O). They show up under "Open documents" in the sidebar.
 - The **Sort** button (right of the notes folder name in the sidebar) orders folders and notes separately by name, date modified or date created.
+- Right-click a note or folder › **Pin to top** to keep it at the top of its folder (with a pin). **Hide** takes it out of the list; right-click an empty part of the sidebar › **Show hidden notes and folders** to see it again.
+- **Drag** notes up or down within a folder to set your own order (choosing a sort order again resets it). This is saved in `.tbnotepad.json` in your notes folder, so it syncs too.
+- **Drag** a note or folder from the sidebar into the editor to insert a link to it.
 
 ## `/` commands
 
@@ -50,9 +53,11 @@ No need to remember shortcuts. Type `/` at the start of a line or after a space 
 
 - Press **Enter** on a bulleted, numbered, to-do or quote line and the next line gets the same marker. Press it again on an empty item to end the list.
 - **Tab** / **Shift+Tab** indent and outdent list items.
+- Insert or delete an item in the middle of a numbered list and the following numbers are **renumbered automatically**.
 - Type `>>` and a space at the start of a line to make a **toggle** (a block that folds open and closed). You can also use `/toggle` or the Format menu.
 - Click the ▶ in front of the title, or press **Ctrl+Enter** on the title line, to fold and unfold it. Anything can go inside — lists, images and more.
 - Toggles are saved as `<details>`, which also folds on GitHub and in VS Code.
+- Start a toggle title with `## ` for a heading-size toggle; emoji, tags and highlights work in titles too.
 
 ---
 
@@ -167,6 +172,8 @@ This was folded away. Toggles can hold lists and images too.
 ## Custom emoji
 
 Like on Discord, you can use your own pictures as text-sized emoji.
+
+About 300 common emoji (Twemoji) are built in too: search `:smile`, `:thumbsup` or `:heart` and a regular emoji character (😄) is inserted, drawn with Twemoji in the document view.
 
 - **Add one**: right-click a picture in a note › **Add as emoji…**, or `/emoji` › **Add a new emoji from a picture…**, then pick a file and name it.
 - **Insert**: after a space, type `:` and the start of a name (`:par`) to see matching emoji. Press Enter, or type the whole `:parrot:` and it turns into the emoji.

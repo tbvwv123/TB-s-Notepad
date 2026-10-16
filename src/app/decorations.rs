@@ -95,8 +95,8 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
         match d {
             Deco::CodeBlock { start, end } => code_block(view, *start, *end, &mut out),
             Deco::Quote { start, end } => quote(view, *start, *end, &mut out),
-            Deco::Bullet { at, level } => bullet(view, *at, *level, &mut out),
-            Deco::Task { at, checked, byte } => task(view, *at, *checked, *byte, &mut out),
+            Deco::Bullet { at, level, .. } => bullet(view, *at, *level, &mut out),
+            Deco::Task { at, checked, byte, .. } => task(view, *at, *checked, *byte, &mut out),
             Deco::Rule { at } => rule(view, *at, &mut out),
             Deco::Image { kind, at, end, uri, size, top, align, line, max_w } => {
                 let img = ImageDeco {
@@ -114,6 +114,7 @@ pub(super) fn paint_decorations(ui: &mut Ui, view: &DecoView<'_>, decos: &[Deco]
             }
             Deco::Link { start, end, url } => link(ui, view, *start, *end, url, &mut out),
             Deco::Emoji { start, uri, size, .. } => emoji(ui, view, *start, uri, *size, &mut out),
+            Deco::Twemoji { start, end, idx, size } => twemoji(ui, view, *start, *end, *idx, *size, &mut out),
             Deco::Tag { start, end, tag } => tag_chip(ui, view, *start, *end, tag, &mut out),
             Deco::Table { rows, aligns, row_height } => table(ui, view, rows, aligns, *row_height, &mut out),
             Deco::Toggle { at, open, details_byte, depth, empty } => {
@@ -342,6 +343,29 @@ fn tag_chip(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, tag: &str, out:
     }
     if v.clicked_at.is_some_and(|p| r.contains(p)) {
         out.follow_tag = Some(tag.to_owned());
+    }
+}
+
+/// 유니코드 이모지 글자 자리(투명하게 둔 글자)에 트위모지 그림
+fn twemoji(ui: &Ui, v: &DecoView<'_>, start: usize, end: usize, idx: usize, size: f32, out: &mut DecoOutput) {
+    let (a, b) = (v.pos(start), v.pos(end));
+    // 다음 글자 앞에 비워 둔 자리 (줄 끝이면 다음 글자가 없어 이모지 오른쪽에 그대로)
+    let slot = b.left() - a.left();
+    let cx = if (a.top() - b.top()).abs() < 1.0 && slot > size * 0.6 {
+        (a.left() + b.left()) / 2.0
+    } else {
+        a.left() + 1.5 + size / 2.0
+    };
+    let r = egui::Rect::from_center_size(egui::pos2(cx, a.center().y), egui::vec2(size, size));
+    if !r.intersects(v.clip) {
+        return;
+    }
+    let uri = crate::twemoji::uri(idx);
+    if let Ok(egui::load::TexturePoll::Ready { texture }) =
+        ui.ctx().try_load_texture(&uri, egui::TextureOptions::LINEAR, egui::SizeHint::default())
+    {
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        out.fg.push(Shape::image(texture.id, r, uv, Color32::WHITE));
     }
 }
 

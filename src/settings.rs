@@ -292,6 +292,8 @@ pub struct Settings {
     pub show_line_numbers: bool,
     /// 사이드바 정렬 (폴더와 메모 따로)
     pub sidebar_sort: SidebarSort,
+    /// 사이드바에 숨긴 메모 · 폴더도 (흐리게) 보이기
+    pub sidebar_show_hidden: bool,
     pub highlight_current_line: bool,
     pub markdown_highlight: bool,
     pub show_toolbar: bool,
@@ -353,6 +355,7 @@ impl Default for Settings {
             sidebar_visible: true,
             autosave: true,
             sidebar_sort: SidebarSort::default(),
+            sidebar_show_hidden: false,
         }
     }
 }

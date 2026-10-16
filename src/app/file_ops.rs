@@ -82,10 +82,13 @@ impl NotepadApp {
         for id in &ids {
             self.save_if_needed(*id);
         }
-        if let Err(err) = std::fs::rename(from, &target) {
+        if let Err(err) = move_any(from, &target) {
             self.dialog = Some(Dialog::Message(tf!("옮기지 못했습니다.\n{}", err)));
             return false;
         }
+        // 고정 · 숨김 · 순서도 따라감
+        let roots = self.settings.roots.clone();
+        self.sidebar.path_moved(&roots, from, &target);
         for d in &mut self.docs {
             if let Some(p) = &d.path
                 && let Ok(rest) = p.strip_prefix(from)
@@ -163,6 +166,8 @@ impl NotepadApp {
     pub(super) fn delete_path(&mut self, ctx: &egui::Context, path: &Path) {
         match sidebar::move_to_trash(path) {
             Ok(()) => {
+                let roots = self.settings.roots.clone();
+                self.sidebar.path_removed(&roots, path);
                 let ids: Vec<u64> = self
                     .docs
                     .iter()
@@ -180,6 +185,42 @@ impl NotepadApp {
     }
 }
 
+/// 파일이나 폴더를 옮깁니다. 다른 드라이브로는 이름 바꾸기로 옮길 수 없으므로 (os error 17)
+/// 복사한 뒤 원본을 지웁니다. 복사가 중간에 실패하면 복사한 것을 지우고 원본은 그대로 둡니다.
+pub(super) fn move_any(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices || e.raw_os_error() == Some(17) => {
+            if let Err(copy_err) = copy_tree(from, to) {
+                let _ = if to.is_dir() { std::fs::remove_dir_all(to) } else { std::fs::remove_file(to) };
+                return Err(copy_err);
+            }
+            if from.is_dir() { std::fs::remove_dir_all(from) } else { std::fs::remove_file(from) }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// 파일 하나, 또는 폴더를 통째로 복사 (수정한 날짜는 복사본도 같게)
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(from, to)?;
+        if let Ok(modified) = std::fs::metadata(from).and_then(|m| m.modified())
+            && let Ok(f) = std::fs::File::options().write(true).open(to)
+        {
+            let _ = f.set_modified(modified);
+        }
+        Ok(())
+    }
+}
+
 /// 폴더 안의 모든 파일 (하위 폴더 포함)
 fn for_each_file(dir: &Path, f: &mut dyn FnMut(&Path)) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -190,5 +231,26 @@ fn for_each_file(dir: &Path, f: &mut dyn FnMut(&Path)) {
             Ok(t) if t.is_file() => f(&path),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copies_whole_folders() {
+        let base = std::env::temp_dir().join(format!("tbn_copytree_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("a/b")).unwrap();
+        std::fs::write(base.join("a/메모.md"), "하나").unwrap();
+        std::fs::write(base.join("a/b/둘.md"), "둘").unwrap();
+        copy_tree(&base.join("a"), &base.join("c")).unwrap();
+        assert_eq!(std::fs::read_to_string(base.join("c/메모.md")).unwrap(), "하나");
+        assert_eq!(std::fs::read_to_string(base.join("c/b/둘.md")).unwrap(), "둘");
+        // 같은 드라이브면 그냥 옮김
+        move_any(&base.join("c"), &base.join("d")).unwrap();
+        assert!(!base.join("c").exists() && base.join("d/b/둘.md").exists());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

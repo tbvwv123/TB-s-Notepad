@@ -190,6 +190,10 @@ pub struct NotepadApp {
     scroll_to_cursor: bool,
     focus_editor: bool,
     focus_attempts: u8,
+    /// 한글 조합 중에 Enter 를 눌러 목록 이어 쓰기를 건너뜀 (TextEdit 다음에 바로잡음)
+    ime_enter: bool,
+    /// 이번 프레임에 글이 바뀜 (번호 목록 다시 매기기)
+    edited: bool,
     cursor: CursorInfo,
     status: Option<(String, f64)>,
     last_title: String,
@@ -213,6 +217,7 @@ pub struct NotepadApp {
 impl NotepadApp {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        crate::twemoji::install(&cc.egui_ctx);
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
 
         let mut settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, "settings")).unwrap_or_default();
@@ -262,6 +267,8 @@ impl NotepadApp {
             scroll_to_cursor: false,
             focus_editor: true,
             focus_attempts: 0,
+            ime_enter: false,
+            edited: false,
             cursor: CursorInfo::default(),
             status: None,
             last_title: String::new(),

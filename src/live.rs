@@ -16,10 +16,10 @@ use crate::media::MediaKind;
 /// 글자 위치는 모두 "글자 단위" 인덱스 (TextEdit 커서와 같은 단위)
 #[derive(Clone, Debug, PartialEq)]
 pub enum Deco {
-    /// 목록의 `-` 자리에 점
-    Bullet { at: usize, level: usize },
-    /// `[ ]` 자리에 체크박스. `byte`는 원문에서 공백/x 가 있는 바이트 위치
-    Task { at: usize, checked: bool, byte: usize },
+    /// 목록의 `-` 자리에 점. `text_at` 은 기호 뒤 글이 시작하는 글자 위치
+    Bullet { at: usize, level: usize, text_at: usize },
+    /// `[ ]` 자리에 체크박스. `byte`는 원문에서 공백/x 가 있는 바이트 위치, `text_at` 은 글이 시작하는 위치
+    Task { at: usize, checked: bool, byte: usize, text_at: usize },
     /// 인용 줄 왼쪽 막대
     Quote { start: usize, end: usize },
     /// `---` 구분선
@@ -50,6 +50,8 @@ pub enum Deco {
     Link { start: usize, end: usize, url: String },
     /// `#태그`: 둥근 바탕을 깔고, Ctrl+클릭하면 그 태그가 붙은 메모를 모아 봄
     Tag { start: usize, end: usize, tag: String },
+    /// 유니코드 이모지 글자 (기본 트위모지가 있는 것): 글자는 투명하게 두고 그 자리에 그림
+    Twemoji { start: usize, end: usize, idx: usize, size: f32 },
     /// 글 속 커스텀 이모지 (`![:이름:](주소 "emoji")`). `start`..`end` 는 문법 전체의 글자 범위로
     /// 글자는 숨기고, 첫 글자 뒤에 비워 둔 `size` 크기 자리에 그림을 그립니다.
     Emoji { start: usize, end: usize, uri: String, size: f32 },
@@ -238,8 +240,22 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
                 // 제목이 비어도 줄이 납작해지지 않게 보통 줄 높이를 줌
                 let m = b.hidden_row(st.size);
                 b.push(&body[..title.start], m.clone());
-                let base = b.body();
-                inline(&mut b, &body[title.clone()], &base, active);
+                // 제목 앞의 `# ` · `## ` · `### ` 는 제목 크기 토글 (기호는 커서가 있을 때만 흐리게)
+                let tt = &body[title.clone()];
+                let hashes = tt.bytes().take_while(|&c| c == b'#').count();
+                if (1..=3).contains(&hashes) && tt[hashes..].starts_with(' ') {
+                    let scale = [1.75, 1.45, 1.22][hashes - 1];
+                    let mut mf = b.marker(active);
+                    if active {
+                        mf.font_id.size = st.size * scale;
+                    }
+                    b.push(&tt[..hashes + 1], mf);
+                    let hf = b.fmt(&st.bold, scale, st.heading);
+                    inline(&mut b, &tt[hashes + 1..], &hf, active);
+                } else {
+                    let base = b.body();
+                    inline(&mut b, tt, &base, active);
+                }
                 b.push(&body[title.end..], m);
                 let nl_f = b.body();
                 b.push(nl, nl_f);
@@ -431,7 +447,9 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
                     let mut bf = b.body();
                     bf.color = Color32::TRANSPARENT;
                     b.push(&body[rest..rest + box_len], bf);
-                    b.decos.push(Deco::Task { at, checked, byte: line_start_byte + rest + 1 });
+                    let space = usize::from(body[rest + box_len..].starts_with(' '));
+                    let text_at = at + box_len + space;
+                    b.decos.push(Deco::Task { at, checked, byte: line_start_byte + rest + 1, text_at });
                     rest += box_len;
                     if checked {
                         base = b.fmt(&st.body, 1.0, st.muted);
@@ -444,7 +462,7 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
                     f.color = Color32::TRANSPARENT;
                     b.push(&body[rest..rest + m.len], f);
                     rest += m.len;
-                    b.decos.push(Deco::Bullet { at, level: indent / 2 });
+                    b.decos.push(Deco::Bullet { at, level: indent / 2, text_at: b.chars });
                 }
                 (ListKind::Number, _) => {
                     let f = b.fmt(&st.body, 1.0, st.muted);
@@ -927,6 +945,31 @@ fn inline(b: &mut Builder<'_>, s: &str, base: &TextFormat, active: bool) {
             continue;
         }
 
+        // 기본 이모지 글자 (U+2000~ 기호는 0xE2, 그림 이모지는 0xF0 으로 시작)
+        if (c == 0xE2 || c == 0xF0)
+            && let Some((idx, len)) = crate::twemoji::at(rest)
+        {
+            flush(b, plain, i);
+            let size = base.font_id.size * EMOJI_SCALE * 0.95;
+            // 글자는 숨기고 (글꼴마다 이모지 폭이 달라서) 바로 다음 글자 앞에 그림 폭만큼 빈 자리를 둠.
+            // 커서는 이모지 앞(그림 왼쪽)과 다음 글자 앞(그림 오른쪽)에 섬. 줄 높이는 보통 줄 그대로
+            let start = b.chars;
+            let mut f = b.hidden_row(base.font_id.size);
+            if i + len >= bytes.len() {
+                // 맨 끝이면 뒤 글자가 없어 빈 자리를 둘 수 없으므로, 투명한 글자를 크게 해서 자리를 냄
+                // (그래야 줄 끝의 커서가 그림 오른쪽에 섬)
+                f.font_id.size = base.font_id.size * 1.3;
+                b.push(&rest[..len], f);
+            } else {
+                b.push(&rest[..len], f);
+                b.lead = size + 3.0;
+            }
+            b.decos.push(Deco::Twemoji { start, end: b.chars, idx, size });
+            i += len;
+            plain = i;
+            continue;
+        }
+
         i += rest.chars().next().map_or(1, char::len_utf8);
     }
     flush(b, plain, bytes.len());
@@ -986,7 +1029,7 @@ mod tests {
         for d in &out.decos {
             match d {
                 Deco::Bullet { at, .. } => assert_eq!(chars[*at], '-'),
-                Deco::Task { at, checked, byte } => {
+                Deco::Task { at, checked, byte, .. } => {
                     assert_eq!(chars[*at], '[');
                     assert!(*checked);
                     assert_eq!(&src[*byte..*byte + 1], "x");
@@ -1097,6 +1140,28 @@ mod tests {
             })
             .collect();
         assert_eq!(tags, ["회의", "일/2024", "태그"]);
+    }
+
+    #[test]
+    fn toggle_titles_take_headings_and_emoji() {
+        let src = "<details open>\n<summary>## 회의 ![:cat:](cat.png \"emoji\") #일</summary>\n\n내용\n\n</details>\n";
+        let out = run(src, None, None);
+        assert_eq!(out.job.text, src);
+        let big = out.job.sections.iter().any(|sec| {
+            sec.format.font_id.size > 20.0 && src[sec.byte_range.start.0..sec.byte_range.end.0].contains("회의")
+        });
+        assert!(big, "## 는 제목 크기");
+        assert!(out.decos.iter().any(|d| matches!(d, Deco::Emoji { .. })));
+        assert!(out.decos.iter().any(|d| matches!(d, Deco::Tag { .. })));
+    }
+
+    #[test]
+    fn unicode_emoji_become_twemoji() {
+        let src = "좋아요 👍 그리고 ❤️ 끝 `😄`\n";
+        let out = run(src, None, None);
+        assert_eq!(out.job.text, src);
+        let n = out.decos.iter().filter(|d| matches!(d, Deco::Twemoji { .. })).count();
+        assert_eq!(n, 2, "코드 안의 것은 그대로");
     }
 
     #[test]
