@@ -226,6 +226,9 @@ impl NotepadApp {
         let actions = self.sidebar.show(ui, &roots, active.as_deref(), &loose, &folder, &mut sort, &mut show_hidden);
         self.settings.sidebar_sort = sort;
         self.settings.sidebar_show_hidden = show_hidden;
+        if let Some(err) = self.sidebar.take_meta_error() {
+            self.set_status(&ctx, tf!("사이드바 정리(고정 · 숨김 · 순서)를 저장하지 못했습니다: {}", err));
+        }
         self.handle_sidebar(&ctx, actions);
     }
 

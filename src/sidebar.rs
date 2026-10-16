@@ -104,6 +104,8 @@ pub struct Sidebar {
     meta: HashMap<PathBuf, (Instant, FolderMeta)>,
     /// 숨긴 메모 · 폴더도 보이기
     show_hidden: bool,
+    /// 고정 · 숨김 · 순서를 저장하지 못한 이유 (앱이 상태 표시줄에 띄움)
+    meta_error: Option<String>,
 }
 
 /// 검색 결과
@@ -142,11 +144,24 @@ impl Sidebar {
         &mut self.meta.get_mut(root).expect("방금 넣음").1
     }
 
-    fn save_meta(&mut self, root: &Path) {
-        if let Some((t, m)) = self.meta.get_mut(root) {
-            m.save(root);
-            *t = Instant::now();
+    /// 고정 · 숨김 · 순서를 바꿉니다. 저장 직전에 파일을 다시 읽고 이번 변경 하나만 반영해서,
+    /// 그사이 다른 PC 에서 바꾼 것을 덮지 않게 합니다. 읽거나 쓰지 못하면 `meta_error` 에 남깁니다.
+    fn update_meta(&mut self, root: &Path, change: impl FnOnce(&mut FolderMeta)) {
+        match FolderMeta::try_load(root) {
+            Ok(mut m) => {
+                change(&mut m);
+                if let Err(e) = m.save(root) {
+                    self.meta_error = Some(e.to_string());
+                }
+                self.meta.insert(root.to_path_buf(), (Instant::now(), m));
+            }
+            Err(e) => self.meta_error = Some(e.to_string()),
         }
+    }
+
+    /// 저장하지 못한 이유 (한 번만)
+    pub fn take_meta_error(&mut self) -> Option<String> {
+        self.meta_error.take()
     }
 
     /// 사이드바 밖에서 옮기거나 이름을 바꿈: 고정 · 숨김 · 순서가 따라갑니다
@@ -158,22 +173,19 @@ impl Sidebar {
         };
         let (Some(fk), Some(tk)) = (rel_key(&fr, from), rel_key(&tr, to)) else { return };
         if fr == tr {
-            self.meta_of(&fr).moved(&fk, &tk);
+            self.update_meta(&fr, |m| m.moved(&fk, &tk));
         } else {
-            let old = self.meta_of(&fr).clone();
-            self.meta_of(&tr).adopt(&old, &fk, &tk);
-            self.meta_of(&fr).removed(&fk);
-            self.save_meta(&tr);
+            let old = FolderMeta::load(&fr);
+            self.update_meta(&tr, |m| m.adopt(&old, &fk, &tk));
+            self.update_meta(&fr, |m| m.removed(&fk));
         }
-        self.save_meta(&fr);
     }
 
     /// 휴지통으로 옮김
     pub fn path_removed(&mut self, roots: &[PathBuf], path: &Path) {
         let Some(root) = folder_meta::root_of(roots, path).cloned() else { return };
         let Some(key) = rel_key(&root, path) else { return };
-        self.meta_of(&root).removed(&key);
-        self.save_meta(&root);
+        self.update_meta(&root, |m| m.removed(&key));
     }
 
     fn is_hidden_path(&mut self, roots: &[PathBuf], path: &Path) -> bool {
@@ -276,19 +288,18 @@ impl Sidebar {
         let (Some(ik), Some(tk), Some(dk)) = (rel_key(root, item), rel_key(root, target), rel_key(root, dir)) else {
             return;
         };
-        let meta = self.meta_of(root);
-        if meta.is_pinned(&ik) && meta.is_pinned(&tk) {
-            meta.pinned.retain(|k| *k != ik);
-            let at = meta.pinned.iter().position(|k| *k == tk).unwrap_or(0) + usize::from(!before);
-            meta.pinned.insert(at.min(meta.pinned.len()), ik);
-        } else {
-            let mut names: Vec<String> = shown.iter().map(|p| file_name(p)).filter(|n| *n != file_name(item)).collect();
-            let at =
-                names.iter().position(|n| *n == file_name(target)).map_or(names.len(), |i| i + usize::from(!before));
-            names.insert(at, file_name(item));
-            meta.set_order(&dk, names);
-        }
-        self.save_meta(root);
+        let mut names: Vec<String> = shown.iter().map(|p| file_name(p)).filter(|n| *n != file_name(item)).collect();
+        let at = names.iter().position(|n| *n == file_name(target)).map_or(names.len(), |i| i + usize::from(!before));
+        names.insert(at, file_name(item));
+        self.update_meta(root, |meta| {
+            if meta.is_pinned(&ik) && meta.is_pinned(&tk) {
+                meta.pinned.retain(|k| *k != ik);
+                let at = meta.pinned.iter().position(|k| *k == tk).unwrap_or(0) + usize::from(!before);
+                meta.pinned.insert(at.min(meta.pinned.len()), ik);
+            } else {
+                meta.set_order(&dk, names);
+            }
+        });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -308,8 +319,7 @@ impl Sidebar {
         if self.sort_seen && self.sort != *sort {
             for root in roots {
                 if !self.meta_of(root).order.is_empty() {
-                    self.meta_of(root).order.clear();
-                    self.save_meta(root);
+                    self.update_meta(root, |m| m.order.clear());
                 }
             }
         }
@@ -625,13 +635,7 @@ impl Sidebar {
             self.reorder(root, dir, &shown, &item, &target, before);
         }
         if let Some((key, is_pin, on)) = flag {
-            let m = self.meta_of(root);
-            if is_pin {
-                m.set_pinned(&key, on)
-            } else {
-                m.set_hidden(&key, on)
-            }
-            self.save_meta(root);
+            self.update_meta(root, |m| if is_pin { m.set_pinned(&key, on) } else { m.set_hidden(&key, on) });
         }
     }
 
@@ -1236,6 +1240,30 @@ fn documents_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn meta_changes_do_not_overwrite_other_pcs() {
+        let root = std::env::temp_dir().join(format!("tbn_meta_merge_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let mut sb = Sidebar::default();
+        sb.update_meta(&root, |m| m.set_pinned("가.md", true));
+        // 다른 PC 가 그사이 "나.md" 를 고정 (이 PC 의 기억은 아직 옛것)
+        let mut other = FolderMeta::load(&root);
+        other.set_pinned("나.md", true);
+        other.save(&root).unwrap();
+        sb.update_meta(&root, |m| m.set_hidden("다", true));
+        let saved = FolderMeta::load(&root);
+        assert_eq!(saved.pinned, ["가.md", "나.md"], "다른 PC 의 변경이 남음");
+        assert_eq!(saved.hidden, ["다"]);
+        assert!(sb.take_meta_error().is_none());
+        // 깨진 파일은 덮어쓰지 않고 오류로 알림
+        std::fs::write(root.join(folder_meta::FILE), "{ 깨짐").unwrap();
+        sb.update_meta(&root, |m| m.set_pinned("라.md", true));
+        assert!(sb.take_meta_error().is_some());
+        assert_eq!(std::fs::read_to_string(root.join(folder_meta::FILE)).unwrap(), "{ 깨짐");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn sorts_folders_and_notes_separately() {

@@ -42,17 +42,32 @@ fn parent_and_name(key: &str) -> (&str, &str) {
 }
 
 impl FolderMeta {
+    /// 보여 주려고 읽기 (없거나 읽지 못하면 빈 정보)
     pub fn load(root: &Path) -> FolderMeta {
-        std::fs::read_to_string(root.join(FILE)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        Self::try_load(root).unwrap_or_default()
+    }
+
+    /// 고치려고 읽기: 파일이 없으면 빈 정보, 있는데 읽을 수 없으면 (동기화 충돌 등으로 깨짐) 오류.
+    /// 깨진 파일을 빈 정보로 덮어쓰지 않으려고 구분합니다.
+    pub fn try_load(root: &Path) -> std::io::Result<FolderMeta> {
+        match std::fs::read_to_string(root.join(FILE)) {
+            Ok(s) => serde_json::from_str(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(FolderMeta::default()),
+            Err(e) => Err(e),
+        }
     }
 
     /// 저장 (아무것도 없으면 파일을 지움)
-    pub fn save(&self, root: &Path) {
+    pub fn save(&self, root: &Path) -> std::io::Result<()> {
         let path = root.join(FILE);
         if *self == FolderMeta::default() {
-            let _ = std::fs::remove_file(path);
-        } else if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = crate::safe_write::write(&path, json.as_bytes(), crate::safe_write::WhenBlocked::Fail);
+            match std::fs::remove_file(path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            }
+        } else {
+            let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+            crate::safe_write::write(&path, json.as_bytes(), crate::safe_write::WhenBlocked::Fail)
         }
     }
 
@@ -182,14 +197,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let mut m = FolderMeta::default();
-        m.save(&root);
+        m.save(&root).unwrap();
         assert!(!root.join(FILE).exists(), "빈 정보는 파일을 만들지 않음");
         m.set_pinned("가.md", true);
-        m.save(&root);
+        m.save(&root).unwrap();
         assert_eq!(FolderMeta::load(&root), m);
         m.set_pinned("가.md", false);
-        m.save(&root);
+        m.save(&root).unwrap();
         assert!(!root.join(FILE).exists());
+        // 깨진 파일은 고치려고 읽을 때 오류 (빈 정보로 덮어쓰지 않게)
+        std::fs::write(root.join(FILE), "{ 깨짐").unwrap();
+        assert!(FolderMeta::try_load(&root).is_err());
+        assert_eq!(FolderMeta::load(&root), FolderMeta::default());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -947,6 +947,7 @@ fn inline(b: &mut Builder<'_>, s: &str, base: &TextFormat, active: bool) {
 
         // 기본 이모지 글자 (U+2000~ 기호는 0xE2, 그림 이모지는 0xF0 으로 시작)
         if (c == 0xE2 || c == 0xF0)
+            && !crate::twemoji::joined_after(&s[..i])
             && let Some((idx, len)) = crate::twemoji::at(rest)
         {
             flush(b, plain, i);
@@ -1162,6 +1163,9 @@ mod tests {
         assert_eq!(out.job.text, src);
         let n = out.decos.iter().filter(|d| matches!(d, Deco::Twemoji { .. })).count();
         assert_eq!(n, 2, "코드 안의 것은 그대로");
+        // 피부색 · 가족 이모지는 통째로 글꼴에 맡김 (일부만 그림이 되지 않게)
+        let out = run("👍🏽 👨\u{200d}👩\u{200d}👧\n", None, None);
+        assert!(!out.decos.iter().any(|d| matches!(d, Deco::Twemoji { .. })), "{:?}", out.decos);
     }
 
     #[test]

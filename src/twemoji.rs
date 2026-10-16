@@ -28,7 +28,13 @@ fn by_char() -> &'static HashMap<char, usize> {
     MAP.get_or_init(|| TWEMOJI.iter().enumerate().filter_map(|(i, (_, s, _))| Some((s.chars().next()?, i))).collect())
 }
 
-/// `s` 가 기본 이모지 글자로 시작하면 (번호, 바이트 길이 — 뒤의 VS16 포함)
+/// 뒤에 붙어 이모지를 다른 모양으로 만드는 글자: 피부색(🏻~🏿), ZWJ(이어 붙이기), 키캡
+fn is_modifier(c: char) -> bool {
+    ('\u{1f3fb}'..='\u{1f3ff}').contains(&c) || c == '\u{200d}' || c == '\u{20e3}'
+}
+
+/// `s` 가 기본 이모지 글자로 시작하면 (번호, 바이트 길이 — 뒤의 VS16 포함).
+/// 👍🏽 · 👨‍👩‍👧 처럼 다른 글자와 합쳐진 이모지는 그림이 없으므로 `None` (글꼴로 그대로 보임)
 pub fn at(s: &str) -> Option<(usize, usize)> {
     let c = s.chars().next()?;
     let &i = by_char().get(&c)?;
@@ -36,7 +42,15 @@ pub fn at(s: &str) -> Option<(usize, usize)> {
     if s[len..].starts_with(VS16) {
         len += VS16.len_utf8();
     }
+    if s[len..].chars().next().is_some_and(is_modifier) {
+        return None;
+    }
     Some((i, len))
+}
+
+/// `s` 의 끝이 이모지를 이어 붙이는 글자(ZWJ)인지: 그 뒤의 이모지는 앞과 한 덩어리
+pub fn joined_after(s: &str) -> bool {
+    s.ends_with('\u{200d}')
 }
 
 /// 이름이 `query` 로 시작하는 것부터, 그다음 들어 있는 것
@@ -87,6 +101,10 @@ mod tests {
         assert_eq!(at("❤️!").map(|(_, l)| l), Some(6));
         assert_eq!(at("❤!").map(|(_, l)| l), Some(3));
         assert!(at("가").is_none());
+        // 피부색 · ZWJ 로 합쳐진 이모지는 그림으로 바꾸지 않음
+        assert!(at("👍🏽").is_none());
+        assert!(at("👍\u{200d}x").is_none());
+        assert!(joined_after("👨\u{200d}"));
         assert_eq!(TWEMOJI[filter("thumb")[0]].0, "thumbsup");
         assert!(find("TADA").is_some());
     }

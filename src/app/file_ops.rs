@@ -82,10 +82,14 @@ impl NotepadApp {
         for id in &ids {
             self.save_if_needed(*id);
         }
-        if let Err(err) = move_any(from, &target) {
-            self.dialog = Some(Dialog::Message(tf!("옮기지 못했습니다.\n{}", err)));
-            return false;
-        }
+        // 다른 드라이브: 복사는 끝났는데 원본을 다 지우지 못했으면 옮긴 것으로 보고 끝에 알림
+        let leftover = match move_any(from, &target) {
+            Ok(leftover) => leftover,
+            Err(err) => {
+                self.dialog = Some(Dialog::Message(tf!("옮기지 못했습니다.\n{}", err)));
+                return false;
+            }
+        };
         // 고정 · 숨김 · 순서도 따라감
         let roots = self.settings.roots.clone();
         self.sidebar.path_moved(&roots, from, &target);
@@ -111,7 +115,13 @@ impl NotepadApp {
         self.sidebar.invalidate();
         let roots = self.settings.roots.clone();
         self.sidebar.reveal(&target, &roots);
-        if !failed.is_empty() {
+        if let Some(err) = leftover {
+            self.dialog = Some(Dialog::Message(tf!(
+                "옮겼지만 원래 위치의 일부를 지우지 못했습니다. 남은 것은 직접 지워 주세요.\n\n{}\n{}",
+                from.display(),
+                err
+            )));
+        } else if !failed.is_empty() {
             let list: Vec<String> = failed.iter().map(|p| format!("· {}", p.display())).collect();
             self.dialog = Some(Dialog::Message(tf!(
                 "옮겼지만 이 메모들의 링크를 고쳐 저장하지 못했습니다:\n\n{}",
@@ -186,19 +196,26 @@ impl NotepadApp {
 }
 
 /// 파일이나 폴더를 옮깁니다. 다른 드라이브로는 이름 바꾸기로 옮길 수 없으므로 (os error 17)
-/// 복사한 뒤 원본을 지웁니다. 복사가 중간에 실패하면 복사한 것을 지우고 원본은 그대로 둡니다.
-pub(super) fn move_any(from: &Path, to: &Path) -> std::io::Result<()> {
+/// 복사한 뒤 원본을 지웁니다. 복사가 중간에 실패하면 복사한 것을 지우고 원본은 그대로 둡니다 (`Err`).
+/// 복사는 끝났는데 원본을 다 지우지 못하면 옮긴 것으로 보고 `Ok(Some(이유))` (원래 자리에 일부가 남음).
+pub(super) fn move_any(from: &Path, to: &Path) -> std::io::Result<Option<String>> {
     match std::fs::rename(from, to) {
-        Ok(()) => Ok(()),
+        Ok(()) => Ok(None),
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices || e.raw_os_error() == Some(17) => {
-            if let Err(copy_err) = copy_tree(from, to) {
-                let _ = if to.is_dir() { std::fs::remove_dir_all(to) } else { std::fs::remove_file(to) };
-                return Err(copy_err);
-            }
-            if from.is_dir() { std::fs::remove_dir_all(from) } else { std::fs::remove_file(from) }
+            copy_then_remove(from, to)
         }
         Err(e) => Err(e),
     }
+}
+
+/// 복사한 뒤 원본을 지움 (다른 드라이브로 옮기기)
+fn copy_then_remove(from: &Path, to: &Path) -> std::io::Result<Option<String>> {
+    if let Err(copy_err) = copy_tree(from, to) {
+        let _ = if to.is_dir() { std::fs::remove_dir_all(to) } else { std::fs::remove_file(to) };
+        return Err(copy_err);
+    }
+    let removed = if from.is_dir() { std::fs::remove_dir_all(from) } else { std::fs::remove_file(from) };
+    Ok(removed.err().map(|e| e.to_string()))
 }
 
 /// 파일 하나, 또는 폴더를 통째로 복사 (수정한 날짜는 복사본도 같게)
@@ -249,7 +266,17 @@ mod tests {
         assert_eq!(std::fs::read_to_string(base.join("c/메모.md")).unwrap(), "하나");
         assert_eq!(std::fs::read_to_string(base.join("c/b/둘.md")).unwrap(), "둘");
         // 같은 드라이브면 그냥 옮김
-        move_any(&base.join("c"), &base.join("d")).unwrap();
+        assert_eq!(move_any(&base.join("c"), &base.join("d")).unwrap(), None);
+        // 다른 드라이브처럼 복사 후 지우기: 원본 하나를 다른 프로그램이 잡고 있으면 옮긴 것으로 보고 남은 것을 알림
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let held = std::fs::OpenOptions::new().read(true).share_mode(0x1).open(base.join("d/b/둘.md")).unwrap();
+            let left = copy_then_remove(&base.join("d"), &base.join("e")).unwrap();
+            drop(held);
+            assert!(left.is_some(), "원본을 다 지우지 못함");
+            assert_eq!(std::fs::read_to_string(base.join("e/b/둘.md")).unwrap(), "둘", "복사본은 온전함");
+        }
         assert!(!base.join("c").exists() && base.join("d/b/둘.md").exists());
         let _ = std::fs::remove_dir_all(&base);
     }
