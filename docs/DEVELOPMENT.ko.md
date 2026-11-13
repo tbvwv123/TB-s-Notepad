@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 ## 설정과 데이터 위치
 
 - 설정과 세션: `%APPDATA%\tb-notepad\data\app.ron`
-- 실행 파일 옆에 `portable.txt`를 만들면 실행 파일 옆 `data` 폴더에 저장합니다 (USB 휴대용).
+- 실행 파일 옆에 `portable.txt`를 만들면 설정은 실행 파일 옆 `data` 폴더에, 기본 메모 폴더는 실행 파일 옆 `TB Notes` 에 둡니다 (USB 휴대용). 실행 파일 폴더가 옮겨지면(드라이브 글자가 바뀜) 그 안을 가리키던 메모 폴더 · 최근 파일 · 열린 문서 경로를 새 위치로 고칩니다 (`Settings::follow_portable_dir`).
 - 환경 변수 `TB_NOTEPAD_DATA`로 저장 폴더를 지정하면 기본 메모 폴더도 그 안에 만듭니다 (테스트용).
 
 ## 성능 측정

@@ -34,9 +34,24 @@ use std::path::PathBuf;
 /// 설정 저장 폴더 이름 등에 쓰는 식별자
 pub const APP_ID: &str = "tb-notepad";
 
+/// 휴대용 모드(실행 파일 옆에 `portable.txt` 가 있음)면 실행 파일이 있는 폴더.
+/// 이때는 설정(`data`)도 기본 메모 폴더(`TB Notes`)도 이 폴더 안에 두어, 폴더째 USB 로 들고 다닐 수 있습니다.
+/// `TB_NOTEPAD_DATA` 로 저장 폴더를 따로 정했으면 휴대용 모드가 아닙니다.
+pub fn portable_dir() -> Option<PathBuf> {
+    static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        if std::env::var_os("TB_NOTEPAD_DATA").is_some() {
+            return None;
+        }
+        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+        exe_dir.join("portable.txt").exists().then_some(exe_dir)
+    })
+    .clone()
+}
+
 /// 설정·세션을 저장할 폴더.
 /// - 환경 변수 `TB_NOTEPAD_DATA`가 있으면 그 폴더
-/// - 실행 파일 옆에 `portable.txt`가 있으면 실행 파일 옆 `data` 폴더 (USB 등에 들고 다니는 포터블 모드)
+/// - 휴대용 모드면 실행 파일 옆 `data` 폴더
 /// - 아니면 `%APPDATA%\tb-notepad\data`
 pub fn data_dir() -> PathBuf {
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -44,9 +59,7 @@ pub fn data_dir() -> PathBuf {
         if let Some(dir) = std::env::var_os("TB_NOTEPAD_DATA") {
             return PathBuf::from(dir);
         }
-        if let Some(exe_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from))
-            && exe_dir.join("portable.txt").exists()
-        {
+        if let Some(exe_dir) = portable_dir() {
             return exe_dir.join("data");
         }
         eframe::storage_dir(APP_ID).unwrap_or_else(|| std::env::temp_dir().join(APP_ID))

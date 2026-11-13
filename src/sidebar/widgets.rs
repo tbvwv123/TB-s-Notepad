@@ -35,6 +35,44 @@ pub(super) fn drag_ghost(ui: &Ui, k: Colors) {
     painter.galley(rect.min + vec2(8.0, 4.0), galley, k.text);
 }
 
+/// 끌고 있는 동안 포인터가 목록의 위 · 아래 가장자리에 가면 그쪽으로 목록을 굴립니다
+/// (긴 목록에서도 놓았다 다시 잡지 않고 한 번에 맨 위 · 맨 아래까지 옮길 수 있게).
+/// 스크롤 영역 안에서 부릅니다.
+pub(super) fn drag_autoscroll(ui: &Ui) {
+    if !egui::DragAndDrop::has_payload_of_type::<PathBuf>(ui.ctx()) {
+        return;
+    }
+    let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else { return };
+    let dt = ui.input(|i| i.stable_dt).min(0.1);
+    let delta = autoscroll_delta(ui.clip_rect(), pointer, dt);
+    if delta != 0.0 {
+        // 바로 움직이게 (기본 스크롤 애니메이션은 프레임마다 더하면 출렁임)
+        ui.scroll_with_delta_animation(vec2(0.0, delta), egui::style::ScrollAnimation::none());
+        ui.ctx().request_repaint();
+    }
+}
+
+/// 이번 프레임에 내용을 옮길 거리: 위 가장자리면 + (내용이 내려옴 = 위쪽이 보임), 아래 가장자리면 -.
+/// 가장자리에 깊이 들어갈수록 (목록 밖으로 나가면 더) 빨라집니다.
+fn autoscroll_delta(view: Rect, pointer: egui::Pos2, dt: f32) -> f32 {
+    const EDGE: f32 = 36.0;
+    if !view.x_range().contains(pointer.x) {
+        return 0.0;
+    }
+    let into_top = view.top() + EDGE - pointer.y;
+    let into_bottom = pointer.y - (view.bottom() - EDGE);
+    let (depth, dir) = if into_top > 0.0 {
+        (into_top, 1.0)
+    } else if into_bottom > 0.0 {
+        (into_bottom, -1.0)
+    } else {
+        return 0.0;
+    };
+    // 초당 240pt 에서 시작해 가장자리 안쪽 · 바깥으로 갈수록 1500pt 까지
+    let speed = (240.0 + depth * 14.0).min(1500.0);
+    dir * speed * dt
+}
+
 /// 줄 오른쪽 · 글자에 붙는 표시
 #[derive(Clone, Copy, Default)]
 pub(super) struct RowMark {
@@ -262,5 +300,88 @@ pub(super) fn search_box(ui: &mut Ui, query: &mut String, k: Colors) {
         if xr.clicked() {
             query.clear();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn autoscroll_only_near_the_edges() {
+        let view = Rect::from_min_max(pos2(0.0, 100.0), pos2(250.0, 600.0));
+        let at = |y: f32| autoscroll_delta(view, pos2(100.0, y), 0.016);
+        assert_eq!(at(350.0), 0.0, "가운데서는 굴리지 않음");
+        assert!(at(110.0) > 0.0, "위 가장자리: 위쪽이 보이게");
+        assert!(at(590.0) < 0.0, "아래 가장자리: 아래쪽이 보이게");
+        assert!(at(60.0) > at(110.0) && at(-5000.0) <= 1500.0 * 0.016, "밖으로 나갈수록 빠르되 한도가 있음");
+        assert_eq!(autoscroll_delta(view, pos2(400.0, 110.0), 0.016), 0.0, "사이드바 옆(본문)에서는 굴리지 않음");
+    }
+
+    /// 실제 스크롤 영역에서: 메모를 끌어 위 가장자리에 대고 있으면 맨 위까지 올라감
+    #[test]
+    fn dragging_to_the_top_edge_scrolls_the_list_up() {
+        let ctx = egui::Context::default();
+        let frame = |events: Vec<egui::Event>, start_at_bottom: bool| -> f32 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(250.0, 400.0))),
+                events,
+                predicted_dt: 1.0 / 60.0,
+                ..Default::default()
+            };
+            let mut offset = 0.0;
+            let mut out = ctx.run_ui(input, |ui| {
+                let mut area = egui::ScrollArea::vertical().id_salt("list").auto_shrink([false, false]);
+                if start_at_bottom {
+                    area = area.vertical_scroll_offset(10_000.0);
+                }
+                let shown = area.show(ui, |ui| {
+                    for _ in 0..100 {
+                        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+                    }
+                    drag_autoscroll(ui);
+                });
+                offset = shown.state.offset.y;
+            });
+            out.textures_delta.clear();
+            offset
+        };
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        // 맨 아래로 내려 둔 긴 목록
+        frame(vec![], true);
+        let bottom = frame(vec![], true);
+        assert!(bottom > 1000.0, "{bottom}");
+        // 끌지 않을 때는 위 가장자리에 포인터가 있어도 그대로
+        for _ in 0..5 {
+            assert_eq!(frame(vec![egui::Event::PointerMoved(pos2(100.0, 4.0))], false), bottom);
+        }
+        // 메모를 잡고 (끌기 시작) 가운데서 끄는 동안은 그대로
+        let grab = pos2(100.0, 300.0);
+        frame(vec![egui::Event::PointerMoved(grab), button(grab, true)], false);
+        egui::DragAndDrop::set_payload(&ctx, PathBuf::from("메모.md"));
+        assert_eq!(frame(vec![egui::Event::PointerMoved(pos2(100.0, 200.0))], false), bottom);
+        // 위 가장자리에 대고 있으면 맨 위까지 올라감
+        let mut offset = bottom;
+        let mut frames = 0;
+        while offset > 0.0 && frames < 600 {
+            offset = frame(vec![egui::Event::PointerMoved(pos2(100.0, 4.0))], false);
+            frames += 1;
+        }
+        assert_eq!(offset, 0.0, "맨 위까지 올라감");
+        assert!((30..400).contains(&frames), "너무 빠르지도 느리지도 않게: {frames} 프레임 (60fps)");
+        // 아래 가장자리에서는 다시 내려감
+        for _ in 0..30 {
+            offset = frame(vec![egui::Event::PointerMoved(pos2(100.0, 396.0))], false);
+        }
+        assert!(offset > 100.0, "{offset}");
+        // 놓으면 더는 굴리지 않음
+        frame(vec![button(pos2(100.0, 396.0), false)], false);
+        let after = frame(vec![], false);
+        assert_eq!(frame(vec![], false), after);
     }
 }

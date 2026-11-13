@@ -291,6 +291,25 @@ impl Sidebar {
         });
     }
 
+    /// 새로 만든 메모 `new` 를 같은 폴더에 있는 `after` 바로 아래에 둡니다.
+    /// 끌어서 순서를 정해 둔 폴더에서만 합니다: 그런 폴더에서는 순서에 없는 새 메모가 맨 아래로 가기 때문.
+    /// 정렬 순서대로 보이는 폴더에서는 정렬이 자리를 정하므로 건드리지 않습니다.
+    pub fn place_after(&mut self, roots: &[PathBuf], image_folder: &str, new: &Path, after: &Path) {
+        let (Some(dir), Some(root)) = (new.parent(), folder_meta::root_of(roots, new).cloned()) else { return };
+        if after == new || after.parent() != Some(dir) {
+            return;
+        }
+        let Some(dir_key) = rel_key(&root, dir) else { return };
+        if !self.meta_of(&root).order.contains_key(&dir_key) {
+            return;
+        }
+        let shown: Vec<PathBuf> = self.sorted_entries(&root, dir, image_folder).into_iter().map(|e| e.path).collect();
+        // 숨겼거나 방금 지워진 (빈 새 메모) 것 아래로는 둘 수 없음
+        if shown.iter().any(|p| p == after) {
+            self.reorder(&root, dir, &shown, new, after, false);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
@@ -449,6 +468,7 @@ impl Sidebar {
                 }
             });
             drag_ghost(ui, k);
+            drag_autoscroll(ui);
         });
         actions
     }
@@ -671,6 +691,50 @@ mod tests {
         sb.update_meta(&root, |m| m.set_pinned("라.md", true));
         assert!(sb.take_meta_error().is_some());
         assert_eq!(std::fs::read_to_string(root.join(folder_meta::FILE)).unwrap(), "{ 깨짐");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 임시 메모 폴더에 빈 메모들을 만듭니다.
+    fn temp_root(tag: &str, notes: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("tbn_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        for n in notes {
+            std::fs::write(root.join(n), "").unwrap();
+        }
+        root
+    }
+
+    fn shown_names(sb: &mut Sidebar, root: &Path) -> Vec<String> {
+        sb.invalidate();
+        sb.sorted_entries(root, root, "images").iter().map(|e| e.name.clone()).collect()
+    }
+
+    #[test]
+    fn new_note_goes_below_the_current_one_in_hand_ordered_folders() {
+        let root = temp_root("place", &["1.md", "2.md", "3.md"]);
+        let roots = vec![root.clone()];
+        let mut sb = Sidebar::default();
+        // 정렬 순서대로 보이는 폴더: 순서를 새로 만들지 않고 정렬에 맡김
+        std::fs::write(root.join("새 메모.md"), "").unwrap();
+        sb.place_after(&roots, "images", &root.join("새 메모.md"), &root.join("1.md"));
+        assert!(FolderMeta::load(&root).order.is_empty());
+        assert_eq!(shown_names(&mut sb, &root), ["1", "2", "3", "새 메모"]);
+        // 끌어서 순서를 정해 둔 폴더: 보고 있던 메모 바로 아래
+        sb.update_meta(&root, |m| m.set_order("", vec!["3.md".into(), "1.md".into(), "2.md".into()]));
+        assert_eq!(shown_names(&mut sb, &root), ["3", "1", "2", "새 메모"], "순서에 없으면 맨 아래");
+        sb.place_after(&roots, "images", &root.join("새 메모.md"), &root.join("1.md"));
+        assert_eq!(shown_names(&mut sb, &root), ["3", "1", "새 메모", "2"]);
+        // 첫 줄을 써서 파일 이름이 바뀌어도 (자동 이름) 그 자리에 그대로
+        std::fs::rename(root.join("새 메모.md"), root.join("회의.md")).unwrap();
+        sb.path_moved(&roots, &root.join("새 메모.md"), &root.join("회의.md"));
+        assert_eq!(shown_names(&mut sb, &root), ["3", "1", "회의", "2"]);
+        // 다른 폴더의 메모 아래로는 두지 않음
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/a.md"), "").unwrap();
+        std::fs::write(root.join("b.md"), "").unwrap();
+        sb.place_after(&roots, "images", &root.join("b.md"), &root.join("sub/a.md"));
+        assert_eq!(shown_names(&mut sb, &root), ["sub", "3", "1", "회의", "2", "b"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 

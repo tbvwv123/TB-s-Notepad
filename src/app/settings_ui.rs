@@ -444,7 +444,7 @@ pub(super) fn settings_about(ui: &mut Ui) {
     ui.add_space(4.0);
     ui.label(
         RichText::new(t!(
-            "실행 파일 옆에 portable.txt 파일을 만들어 두면 설정을 실행 파일 옆 data 폴더에 저장합니다 (USB 휴대용)."
+            "실행 파일 옆에 portable.txt 파일을 만들어 두면 설정은 실행 파일 옆 data 폴더에, 기본 메모 폴더는 실행 파일 옆 TB Notes 에 둡니다 (USB 휴대용)."
         ))
         .small()
         .weak(),

@@ -468,10 +468,10 @@ T = {
     ),
     "상태 표시줄": ("Status bar", "状态栏", "ステータスバー"),
     "설정 저장 위치": ("Settings location", "设置保存位置", "設定の保存場所"),
-    "실행 파일 옆에 portable.txt 파일을 만들어 두면 설정을 실행 파일 옆 data 폴더에 저장합니다 (USB 휴대용).": (
-        "Put a portable.txt file next to the exe to keep settings in a data folder beside it (for USB drives).",
-        "在程序旁放一个 portable.txt 文件，设置就会保存在程序旁的 data 文件夹中（便携 / U 盘使用）。",
-        "実行ファイルの横に portable.txt を置くと、設定を実行ファイル横の data フォルダーに保存します (USB 持ち運び用)。",
+    "실행 파일 옆에 portable.txt 파일을 만들어 두면 설정은 실행 파일 옆 data 폴더에, 기본 메모 폴더는 실행 파일 옆 TB Notes 에 둡니다 (USB 휴대용).": (
+        "Put a portable.txt file next to the exe to keep settings in a data folder and the default notes folder in TB Notes, both beside the exe (for USB drives).",
+        "在程序旁放一个 portable.txt 文件，设置会保存在程序旁的 data 文件夹，默认笔记文件夹则是程序旁的 TB Notes（便携 / U 盘使用）。",
+        "実行ファイルの横に portable.txt を置くと、設定は実行ファイル横の data フォルダーに、既定のメモフォルダーは実行ファイル横の TB Notes に置きます (USB 持ち運び用)。",
     ),
     "모든 설정 기본값으로": ("Reset all settings", "恢复所有默认设置", "すべての設定を初期値に戻す"),
     "언어": ("Language", "语言", "言語"),

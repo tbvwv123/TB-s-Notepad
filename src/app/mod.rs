@@ -224,15 +224,22 @@ impl NotepadApp {
 
         let mut settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, "settings")).unwrap_or_default();
         settings.clamp();
+        // 휴대용 모드: USB 드라이브 글자가 바뀌어도 실행 파일 옆의 메모 폴더 · 열려 있던 메모를 그대로 찾음
+        let moved = settings.follow_portable_dir(crate::portable_dir().as_deref());
         // 시작 메모를 그 언어로 쓰도록 먼저 정함
         crate::i18n::set_lang(settings.language.unwrap_or_else(Lang::system));
-        let session: Session = if settings.restore_session {
+        let mut session: Session = if settings.restore_session {
             cc.storage.and_then(|s| eframe::get_value(s, "session")).unwrap_or_default()
         } else {
             Session::default()
         };
+        if let Some((old, new)) = &moved {
+            for path in session.docs.iter_mut().filter_map(|d| d.path.as_mut()) {
+                crate::settings::rebase_path(path, old, new);
+            }
+        }
 
-        // 처음 실행: 문서\TB Notes 를 만들고 사이드바에 추가
+        // 처음 실행: 문서\TB Notes (휴대용 모드면 실행 파일 옆 TB Notes) 를 만들고 사이드바에 추가
         let mut welcome = None;
         if !settings.roots_initialized {
             settings.roots_initialized = true;

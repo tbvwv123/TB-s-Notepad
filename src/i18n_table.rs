@@ -188,7 +188,7 @@ pub const ROWS: &[(&str, &str, &str, &str)] = &[
     ("숲", "Forest", "森林", "森"),
     ("시작하기.md", "Getting Started.md", "入门指南.md", "はじめに.md"),
     ("실행 취소 / 다시 실행", "Undo / Redo", "撤销 / 重做", "元に戻す / やり直し"),
-    ("실행 파일 옆에 portable.txt 파일을 만들어 두면 설정을 실행 파일 옆 data 폴더에 저장합니다 (USB 휴대용).", "Put a portable.txt file next to the exe to keep settings in a data folder beside it (for USB drives).", "在程序旁放一个 portable.txt 文件，设置就会保存在程序旁的 data 文件夹中（便携 / U 盘使用）。", "実行ファイルの横に portable.txt を置くと、設定を実行ファイル横の data フォルダーに保存します (USB 持ち運び用)。"),
+    ("실행 파일 옆에 portable.txt 파일을 만들어 두면 설정은 실행 파일 옆 data 폴더에, 기본 메모 폴더는 실행 파일 옆 TB Notes 에 둡니다 (USB 휴대용).", "Put a portable.txt file next to the exe to keep settings in a data folder and the default notes folder in TB Notes, both beside the exe (for USB drives).", "在程序旁放一个 portable.txt 文件，设置会保存在程序旁的 data 文件夹，默认笔记文件夹则是程序旁的 TB Notes（便携 / U 盘使用）。", "実行ファイルの横に portable.txt を置くと、設定は実行ファイル横の data フォルダーに、既定のメモフォルダーは実行ファイル横の TB Notes に置きます (USB 持ち運び用)。"),
     ("아직 이전 버전이 없습니다", "No previous versions yet", "还没有历史版本", "まだ以前のバージョンはありません"),
     ("아직 태그가 없습니다. 글에 #태그 처럼 쓰면 됩니다.", "No tags yet. Just write #tag in a note.", "还没有标签。在笔记中写 #标签 即可。", "まだタグがありません。本文に #タグ のように書けば OK です。"),
     ("알림", "Notice", "提示", "お知らせ"),

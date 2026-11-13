@@ -27,7 +27,7 @@ Tests: `cargo test`
 ## Settings and data
 
 - Settings and session: `%APPDATA%\tb-notepad\data\app.ron`
-- A `portable.txt` next to the exe keeps everything in a `data` folder beside it (for USB drives).
+- A `portable.txt` next to the exe keeps settings in a `data` folder and the default notes folder in `TB Notes`, both beside it (for USB drives). When the exe folder moves (the drive letter changes), note folders, recent files and open documents that pointed inside it are rebased to the new place (`Settings::follow_portable_dir`).
 - The `TB_NOTEPAD_DATA` environment variable picks the data folder and also puts the default notes folder inside it (handy for tests).
 
 ## UI languages (한국어 · English · 中文 · 日本語)

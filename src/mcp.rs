@@ -226,13 +226,15 @@ struct Target<'a> {
 }
 
 impl Vault {
-    /// 앱 설정(`app.ron`)의 메모 폴더. 설정이 없으면 기본 메모 폴더(문서\TB Notes).
+    /// 앱 설정(`app.ron`)의 메모 폴더. 설정이 없으면 기본 메모 폴더(문서\TB Notes, 휴대용 모드면 실행 파일 옆).
     fn from_settings() -> Self {
-        let settings: Settings = std::fs::read_to_string(crate::data_dir().join("app.ron"))
+        let mut settings: Settings = std::fs::read_to_string(crate::data_dir().join("app.ron"))
             .ok()
             .and_then(|s| ron::from_str::<HashMap<String, String>>(&s).ok())
             .and_then(|map| ron::from_str(map.get("settings")?).ok())
             .unwrap_or_default();
+        // 휴대용 모드에서 드라이브 글자가 바뀌었으면 앱과 같은 방식으로 메모 폴더를 찾음
+        settings.follow_portable_dir(crate::portable_dir().as_deref());
         let mut roots = settings.roots;
         if roots.is_empty() {
             let dir = crate::sidebar::default_notes_dir();

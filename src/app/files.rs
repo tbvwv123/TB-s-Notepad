@@ -67,6 +67,7 @@ impl NotepadApp {
 
     pub(super) fn new_note_in(&mut self, dir: &Path) {
         let path = unique_path(dir, t!("새 메모"), "md");
+        let current = self.doc().path.clone();
         match std::fs::write(&path, "") {
             Ok(()) => {
                 if let Ok(mut doc) = Document::open(&path) {
@@ -75,6 +76,10 @@ impl NotepadApp {
                 }
                 self.sidebar.invalidate();
                 let roots = self.settings.roots.clone();
+                // 끌어서 순서를 정해 둔 폴더면 보고 있던 메모 바로 아래에 (맨 아래로 가지 않게)
+                if let Some(current) = current {
+                    self.sidebar.place_after(&roots, &self.settings.image_folder, &path, &current);
+                }
                 self.sidebar.reveal(&path, &roots);
                 self.focus_editor = true;
             }
@@ -241,7 +246,11 @@ impl NotepadApp {
             let target = unique_path(dir, &title, "md");
             if std::fs::rename(&path, &target).is_ok() {
                 crate::history::moved(&path, &target);
-                doc.path = Some(target);
+                doc.path = Some(target.clone());
+                // 끌어서 정한 순서 · 고정 · 숨김도 새 이름을 따라감
+                // (안 그러면 순서에서 빠져, 제목을 고칠 때마다 메모가 목록 맨 아래로 내려감)
+                let roots = self.settings.roots.clone();
+                self.sidebar.path_moved(&roots, &path, &target);
                 self.sidebar.invalidate();
             }
         }

@@ -1,6 +1,6 @@
 //! 사용자 설정과 색 테마.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use egui::Color32;
 use serde::{Deserialize, Serialize};
@@ -270,6 +270,15 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
 }
 
+/// `old` 안을 가리키는 경로면 같은 자리의 `new` 안으로 고칩니다 (옮긴 곳에 실제로 있을 때만).
+pub fn rebase_path(path: &mut PathBuf, old: &Path, new: &Path) {
+    let Ok(rest) = path.strip_prefix(old) else { return };
+    let moved = if rest.as_os_str().is_empty() { new.to_path_buf() } else { new.join(rest) };
+    if moved.exists() {
+        *path = moved;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -322,6 +331,8 @@ pub struct Settings {
     pub sidebar_visible: bool,
     /// 파일로 저장된 메모는 입력을 멈추면 바로 저장
     pub autosave: bool,
+    /// 휴대용 모드로 마지막에 실행했을 때 실행 파일이 있던 폴더 (USB 드라이브 글자가 바뀐 것을 알아채려고)
+    pub portable_base: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -354,6 +365,7 @@ impl Default for Settings {
             roots_initialized: false,
             sidebar_visible: true,
             autosave: true,
+            portable_base: None,
             sidebar_sort: SidebarSort::default(),
             sidebar_show_hidden: false,
         }
@@ -432,6 +444,21 @@ impl Settings {
         self.recent_files.truncate(12);
     }
 
+    /// 휴대용 모드에서 실행 파일 폴더가 지난번과 다른 곳(`now`)이면 — USB 를 다른 PC 에 꽂아 드라이브 글자가
+    /// 바뀌었거나 폴더째 옮김 — 그 안을 가리키던 메모 폴더 · 최근 파일을 새 위치로 고칩니다.
+    /// 고쳤으면 (옛 위치, 새 위치) 를 돌려줍니다 (세션의 열린 문서도 같이 고치도록).
+    pub fn follow_portable_dir(&mut self, now: Option<&Path>) -> Option<(PathBuf, PathBuf)> {
+        let old = std::mem::replace(&mut self.portable_base, now.map(Path::to_path_buf));
+        let (old, now) = (old?, now?);
+        if old == now {
+            return None;
+        }
+        for p in self.roots.iter_mut().chain(self.recent_files.iter_mut()) {
+            rebase_path(p, &old, now);
+        }
+        Some((old, now.to_path_buf()))
+    }
+
     pub fn clamp(&mut self) {
         self.editor_font_size = self.editor_font_size.clamp(6.0, 96.0);
         self.line_spacing = self.line_spacing.clamp(1.0, 3.0);
@@ -440,5 +467,39 @@ impl Settings {
         if self.max_text_width != 0.0 {
             self.max_text_width = self.max_text_width.clamp(400.0, 2000.0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portable_folders_follow_the_exe() {
+        // USB 가 E: 였다가 다른 PC 에서 다른 곳에 꽂힌 상황을 임시 폴더 두 개로 흉내
+        let base = std::env::temp_dir().join(format!("tbn_portable_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (old, new) = (base.join("E/TBN"), base.join("F/TBN"));
+        std::fs::create_dir_all(new.join("TB Notes")).unwrap();
+        std::fs::write(new.join("TB Notes/메모.md"), "").unwrap();
+        let outside = base.join("Documents/Notes");
+        let mut s = Settings {
+            roots: vec![old.join("TB Notes"), outside.clone(), old.join("없는 폴더")],
+            recent_files: vec![old.join("TB Notes/메모.md")],
+            ..Default::default()
+        };
+        // 처음 휴대용으로 켠 때: 기억만 하고 고치지 않음
+        assert_eq!(s.follow_portable_dir(Some(&old)), None);
+        assert_eq!(s.portable_base.as_deref(), Some(old.as_path()));
+        assert_eq!(s.follow_portable_dir(Some(&old)), None, "같은 자리면 그대로");
+        // 실행 파일 폴더가 옮겨짐: 그 안의 것만 따라가고, 밖의 폴더 · 옮긴 곳에 없는 것은 그대로
+        assert_eq!(s.follow_portable_dir(Some(&new)), Some((old.clone(), new.clone())));
+        assert_eq!(s.roots, [new.join("TB Notes"), outside, old.join("없는 폴더")]);
+        assert_eq!(s.recent_files, [new.join("TB Notes/메모.md")]);
+        assert_eq!(s.portable_base.as_deref(), Some(new.as_path()));
+        // 휴대용 모드를 끄면 잊음
+        assert_eq!(s.follow_portable_dir(None), None);
+        assert_eq!(s.portable_base, None);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

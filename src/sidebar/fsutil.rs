@@ -132,11 +132,15 @@ pub fn move_to_trash(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// 기본 메모 폴더: 문서\TB Notes
+/// 기본 메모 폴더: 문서\TB Notes (휴대용 모드면 실행 파일 옆 TB Notes)
 pub fn default_notes_dir() -> PathBuf {
     // 테스트 등으로 저장 폴더를 따로 지정했으면 그 안에 만듭니다.
     if let Some(dir) = std::env::var_os("TB_NOTEPAD_DATA") {
         return PathBuf::from(dir).join("TB Notes");
+    }
+    // 휴대용 모드: PC 의 문서 폴더를 쓰지 않고 실행 파일과 함께 다니게
+    if let Some(dir) = crate::portable_dir() {
+        return dir.join("TB Notes");
     }
     documents_dir().join("TB Notes")
 }
