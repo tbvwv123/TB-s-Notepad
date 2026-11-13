@@ -58,6 +58,14 @@ Documents over 1 MB are shown without document-view formatting to stay responsiv
 egui silently swallows Ctrl+V when the clipboard has no text. On Windows the window is subclassed so the key is seen before winit,
 and an image paste runs only when the clipboard has an image or files but no text (`src/paste_hook.rs`).
 
+## How text dragged from other apps is received
+
+winit registers its own OLE drop target on the window, which accepts files (`CF_HDROP`) only and refuses text. On Windows that
+drop target is replaced after the window is created (`src/drop_target.rs`): files are passed to egui's `hovered_files` / `dropped_files`
+exactly as winit did, and text (`CF_UNICODETEXT`) is accepted as a copy over the editor only; the hover position and the dropped text
+are fed into egui's input in `raw_input_hook`. Where the text lands and the rule that keeps image lines intact live in
+`src/app/text_drop.rs`; the drop caret is drawn by `src/app/editor.rs`. If registering fails, winit's target is put back so file drops keep working.
+
 ## How the document view works
 
 The text itself is never changed (so TextEdit can keep editing it); only its look is (`src/live.rs`).
@@ -129,4 +137,6 @@ Bump the version in `Cargo.toml` and `assets/app.rc` first. `.github/workflows/c
 | `src/fonts.rs` | System font list, body/bold/code font families, bold variant lookup, variable-font weight, fake bold, baseline alignment |
 | `src/ui_kit.rs` | Hand-drawn vector icons, flat buttons, switches |
 | `src/paste_hook.rs` | Windows window subclassing to catch Ctrl+V for image paste |
+| `src/drop_target.rs` | Windows OLE drop target: dropped files (same as winit) and text dragged from other apps |
+| `src/app/text_drop.rs` | Where dragged text is inserted (never splitting an image line) and inserting it |
 | `src/mcp.rs` | `--mcp` mode: local MCP server for AI (stdio JSON-RPC, notes-folder path checks, note tools) — [MCP.md](MCP.md) |

@@ -1,7 +1,9 @@
 //! 본문 편집기: TextEdit 배치(문서 모드 / 원본 보기), 꾸밈·찾은 위치·줄 번호 그리기.
 
 use super::decorations::{DecoView, paint_decorations};
+use super::text_drop::{DropSpot, drop_spot};
 use super::*;
+use crate::drop_target::Zone;
 
 /// 글자를 배치할 때 필요한 값 (layouter 안에서 씀)
 struct LayoutParams<'a> {
@@ -49,6 +51,21 @@ impl NotepadApp {
         if ui.interact(ui.max_rect(), id.with("background"), egui::Sense::click()).clicked() {
             ctx.memory_mut(|m| m.request_focus(id));
         }
+        // 다른 프로그램에서 끌어온 글은 본문 위에서만 받습니다 (대화상자 · 설정 창이 떠 있으면 받지 않음).
+        // 끄는 동안의 마우스 모양(복사 / 금지)을 정하도록 그 영역을 드롭 타깃에 알려 둡니다.
+        let drop_area = ui.max_rect();
+        let layer = ui.layer_id();
+        let accepts_text =
+            self.dialog.is_none() && self.link_picker.is_none() && self.history_view.is_none() && !self.show_settings;
+        crate::drop_target::set_text_zone(accepts_text.then(|| Zone::from_points(drop_area, ctx.pixels_per_point())));
+        // 찾기 카드처럼 본문 위에 떠 있는 것 위도 본문이 아님
+        let over_text =
+            |p: egui::Pos2| accepts_text && drop_area.contains(p) && ctx.layer_id_at(p).is_none_or(|top| top == layer);
+        let text_hover = self.text_drag.hover.filter(|p| over_text(*p));
+        let mut text_dropped = self.text_drag.dropped.take().filter(|(_, p)| over_text(*p));
+        // 놓을 자리를 정했으면 (넣을 자리, 글)
+        let mut text_drop: Option<(DropSpot, String)> = None;
+
         self.apply_pending_edits(&ctx, id);
         // 복사해 둔 메모 링크를 붙여넣으면 이 메모 기준 상대 경로로
         if ctx.memory(|m| m.has_focus(id)) {
@@ -250,6 +267,20 @@ impl NotepadApp {
                         fg_shapes.insert(0, Shape::galley(at, bold_galley.clone(), Color32::TRANSPARENT));
                     }
                 }
+                // 다른 프로그램에서 끌어온 글: 놓일 자리에 세로선, 놓으면 그 자리에 넣음
+                if let Some(p) = text_hover.or(text_dropped.as_ref().map(|(_, p)| *p)) {
+                    let c = galley.cursor_from_pos(p - output.galley_pos).index.0;
+                    let spot = external_drop_spot(c, doc, doc_mode);
+                    match text_dropped.take() {
+                        Some((text, _)) => text_drop = Some((spot, text)),
+                        None => {
+                            let line = drop_caret(spot, &decorations.image_rects, |c| {
+                                galley.pos_from_cursor(CCursor::new(c)).translate(output.galley_pos.to_vec2())
+                            });
+                            fg_shapes.push(Shape::line_segment(line, Stroke::new(2.0, accent)));
+                        }
+                    }
+                }
                 if s.show_line_numbers {
                     let bottom = full.bottom().max(clip.bottom());
                     let gutter =
@@ -358,6 +389,9 @@ impl NotepadApp {
             set_caret(&ctx, id, at);
             let is_dir = path.is_dir();
             self.insert_note_link(&path, is_dir);
+        }
+        if let Some((spot, text)) = text_drop {
+            self.insert_dropped_text(&ctx, id, spot, &text);
         }
         if let Some(what) = menu_pick
             && let Some((d, sel)) = self.menu_sel.take()
@@ -609,6 +643,41 @@ fn snap_out_of_images(
     })
 }
 
+/// 다른 프로그램에서 끌어온 글을 화면에서 고른 글자 위치 `c` 에 놓을 때 실제로 넣을 자리.
+/// 문서 모드에서는 숨은 문법(이모지 · 글머리 기호) 안이면 그 뒤로 옮기고, 그림 줄은 깨지 않게 위·아래 새 줄로.
+fn external_drop_spot(c: usize, doc: &Document, doc_mode: bool) -> DropSpot {
+    if !doc_mode {
+        return DropSpot::At(c);
+    }
+    let one = CCursorRange::one(CCursor::new(c));
+    let snapped = snap_out_of_emoji(one, &emoji_spans(doc), None)
+        .or_else(|| snap_past_markers(one, &marker_spans(doc), None, &doc.text));
+    drop_spot(snapped.map_or(c, |r| r.primary.index.0), &image_spans(doc))
+}
+
+/// 끌어온 글이 놓일 자리를 보여 주는 세로선. 그림 줄 위·아래면 (커서처럼) 그림 옆에 그림 높이만큼.
+/// `image_rects`: 화면에 보이는 그림들의 (시작 글자, 끝 글자, 자리), `pos`: 글자 위치 → 화면 자리
+fn drop_caret(
+    spot: DropSpot,
+    image_rects: &[(usize, usize, egui::Rect)],
+    pos: impl Fn(usize) -> egui::Rect,
+) -> [egui::Pos2; 2] {
+    let beside = |c: usize, after: bool| {
+        let &(_, _, r) = image_rects.iter().find(|(start, end, _)| c == if after { *end } else { *start })?;
+        let x = if after { r.right() + 5.0 } else { r.left() - 5.0 };
+        Some([egui::pos2(x, r.top()), egui::pos2(x, r.bottom())])
+    };
+    let (c, line) = match spot {
+        DropSpot::At(c) => (c, None),
+        DropSpot::AboveImage(c) => (c, beside(c, false)),
+        DropSpot::BelowImage(c) => (c, beside(c, true)),
+    };
+    line.unwrap_or_else(|| {
+        let r = pos(c);
+        [r.left_top(), r.left_bottom()]
+    })
+}
+
 /// 커서가 이모지 문법 안으로 들어가면 옮길 자리: 이모지 뒤에서 ← 로 들어오면 앞, 그 밖(→ · 클릭 · 위아래)은 뒤.
 fn snap_out_of_emoji(
     range: CCursorRange,
@@ -782,6 +851,22 @@ mod tests {
         assert_eq!(at(snap_out_of_emoji(one(17), &spans, None)), Some(30), "클릭하면 뒤");
         assert!(snap_out_of_emoji(one(5), &spans, None).is_none());
         assert!(snap_out_of_emoji(one(30), &spans, None).is_none());
+    }
+
+    #[test]
+    fn drop_caret_stands_beside_images() {
+        let image = egui::Rect::from_min_max(egui::pos2(100.0, 200.0), egui::pos2(400.0, 500.0));
+        let imgs = [(10, 40, image)];
+        let pos = |c: usize| egui::Rect::from_min_max(egui::pos2(c as f32, 50.0), egui::pos2(c as f32, 70.0));
+        // 보통 글자 자리에는 그 줄 높이만큼
+        assert_eq!(drop_caret(DropSpot::At(7), &imgs, pos), [egui::pos2(7.0, 50.0), egui::pos2(7.0, 70.0)]);
+        // 그림 위·아래 새 줄은 그림 왼쪽·오른쪽에 그림 높이만큼 (커서와 같은 자리)
+        let left = [egui::pos2(95.0, 200.0), egui::pos2(95.0, 500.0)];
+        let right = [egui::pos2(405.0, 200.0), egui::pos2(405.0, 500.0)];
+        assert_eq!(drop_caret(DropSpot::AboveImage(10), &imgs, pos), left);
+        assert_eq!(drop_caret(DropSpot::BelowImage(40), &imgs, pos), right);
+        // 화면 밖이라 자리를 모르는 그림이면 글자 자리로
+        assert_eq!(drop_caret(DropSpot::BelowImage(90), &imgs, pos), [egui::pos2(90.0, 50.0), egui::pos2(90.0, 70.0)]);
     }
 
     #[test]

@@ -42,7 +42,20 @@ rodio = { version = "0.23", default-features = false, features = ["playback", "m
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
 # 동영상 첫 장면 미리보기 (Windows 셸 썸네일). accesskit 이 이미 쓰는 버전이라 새로 받는 것은 없음
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# + 다른 프로그램에서 끌어온 글 받기 (OLE 드롭 타깃, src/drop_target.rs)
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# `#[implement]` (COM 객체 만들기) 매크로가 이 이름으로 찾음. windows 가 이미 쓰는 버전
+windows-core = "0.62"
 # Ctrl+V 이미지 붙여넣기 (창 서브클래싱) — 이미 eframe/winit이 쓰는 버전들
 raw-window-handle = "0.6"
 windows-sys = { version = "0.61", features = [

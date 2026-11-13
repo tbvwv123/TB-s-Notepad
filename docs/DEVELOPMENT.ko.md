@@ -49,6 +49,14 @@ dist\TB-Notepad.exe "perf_data\TB Notes\큰 문서ŀKB.md"; Get-Content perf.txt
 egui는 클립보드에 텍스트가 없으면 Ctrl+V를 조용히 삼킵니다. 그래서 Windows에서는 창을 서브클래싱해
 winit보다 먼저 키 입력을 보고, "텍스트는 없고 그림/파일이 있는" 경우에만 그림 붙여넣기를 실행합니다 (`src/paste_hook.rs`).
 
+## 다른 프로그램에서 끌어온 글 받기의 원리
+
+winit 은 창에 자기 OLE 드롭 타깃을 등록하는데 파일(`CF_HDROP`)만 받고 글은 거절합니다. 그래서 Windows 에서는 창이 만들어진 뒤
+그 드롭 타깃을 우리 것으로 바꿉니다 (`src/drop_target.rs`): 파일은 winit 이 하던 그대로 egui 의 `hovered_files` / `dropped_files` 로 넘기고,
+글(`CF_UNICODETEXT`)은 본문 위에서만 "복사"로 받아 끌고 있는 자리와 놓은 글을 `raw_input_hook` 에서 egui 입력에 넣습니다.
+놓을 자리와 그림 줄을 깨지 않는 규칙은 `src/app/text_drop.rs`, 놓일 자리 세로선은 `src/app/editor.rs` 가 맡습니다.
+등록에 실패하면 winit 의 것을 되돌려 놓아 파일 끌어다 놓기는 그대로 됩니다.
+
 ## 문서 모드의 원리
 
 글자 자체는 그대로 두고(그래야 TextEdit이 그대로 편집할 수 있음) 모양만 바꿉니다 (`src/live.rs`).
@@ -126,4 +134,6 @@ gh attestation verify TB-Notepad.exe -R tbvwv123/TB-s-Notepad
 | `src/fonts.rs` | 시스템 글꼴 목록, 본문/굵게/코드 글꼴 묶음, 굵은 변형 찾기·가변 글꼴 굵기·가짜 굵게, 한글·영문 기준선 보정 |
 | `src/ui_kit.rs` | 직접 그리는 벡터 아이콘, 납작한 버튼, 스위치 |
 | `src/paste_hook.rs` | Windows 창 서브클래싱으로 Ctrl+V 그림 붙여넣기 감지 |
+| `src/drop_target.rs` | Windows OLE 드롭 타깃: 끌어다 놓은 파일(winit 과 같게)과 다른 프로그램에서 끌어온 글 받기 |
+| `src/app/text_drop.rs` | 끌어온 글을 넣을 자리 정하기(그림 줄은 깨지 않게)와 넣기 |
 | `src/mcp.rs` | `--mcp` 모드: AI용 로컬 MCP 서버 (stdio JSON-RPC, 메모 폴더 경로 제한, 메모 도구) — [MCP.ko.md](MCP.ko.md) |

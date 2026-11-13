@@ -8,6 +8,7 @@ mod i18n_table;
 
 mod app;
 mod document;
+mod drop_target;
 mod editing;
 mod emoji;
 mod encoding;

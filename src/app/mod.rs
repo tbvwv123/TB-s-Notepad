@@ -18,6 +18,7 @@ mod media_cards;
 mod note_links;
 mod settings_ui;
 mod slash;
+mod text_drop;
 mod typing;
 
 use std::ops::Range;
@@ -214,6 +215,8 @@ pub struct NotepadApp {
     history_view: Option<history_ui::HistoryView>,
     /// 성능 측정용 자동 입력 각본 (TB_NOTEPAD_PERF_SCRIPT)
     perf_script: Option<crate::perf::Script>,
+    /// 다른 프로그램에서 끌어온 글: 끌고 있는 자리와 놓은 글 (drop_target 참고)
+    text_drag: crate::drop_target::TextDrag,
 }
 
 impl NotepadApp {
@@ -289,6 +292,7 @@ impl NotepadApp {
             menu_sel: None,
             history_view: None,
             perf_script: crate::perf::Script::active().then(crate::perf::Script::default),
+            text_drag: Default::default(),
         };
 
         for sd in session.docs {
@@ -330,6 +334,7 @@ impl NotepadApp {
         app.apply_look(&cc.egui_ctx);
         app.report_previous_crash();
         crate::paste_hook::install(cc);
+        crate::drop_target::install(cc);
         app
     }
 
@@ -517,6 +522,10 @@ impl eframe::App for NotepadApp {
         {
             self.sidebar.query = query;
         }
+        // 다른 프로그램에서 끌어다 놓은 파일 · 글 (drop_target 참고). 좌표 배율은 egui-winit 과 같은 계산
+        let native = raw_input.viewports.get(&raw_input.viewport_id).and_then(|v| v.native_pixels_per_point);
+        let pixels_per_point = native.map_or_else(|| ctx.pixels_per_point(), |n| n * ctx.zoom_factor());
+        self.text_drag = crate::drop_target::feed(crate::drop_target::take(), pixels_per_point, raw_input);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
