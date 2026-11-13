@@ -11,9 +11,7 @@ impl NotepadApp {
         doc.text = text;
         doc.mark_changed();
         self.edited = true;
-        let mut state = TextEditState::load(ctx, id).unwrap_or_default();
-        state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(sel.start), CCursor::new(sel.end))));
-        state.store(ctx, id);
+        set_selection(ctx, id, sel);
         self.scroll_to_cursor = true;
         ctx.request_repaint();
     }
@@ -29,9 +27,7 @@ impl NotepadApp {
             self.ime_enter = ctx.input(|i| i.key_pressed(Key::Enter));
             return;
         }
-        let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()) else { return };
-        let r = range.as_sorted_char_range();
-        let sel = r.start.0..r.end.0;
+        let Some(sel) = selection(ctx, id) else { return };
         let pressed = |m: Modifiers, k: Key| ctx.input(|i| i.modifiers.matches_exact(m) && i.key_pressed(k));
 
         // 글머리 · 할 일의 글 시작에서 Backspace: 기호를 지워 보통 줄로 (숨은 기호를 한 글자씩 지우면 목록이 깨지므로)
@@ -88,11 +84,7 @@ impl NotepadApp {
     /// 목록 이어 쓰기, 접힌 토글의 숨은 줄에 들어간 커서.
     pub(super) fn after_edit_fixes(&mut self, ctx: &egui::Context, id: Id) {
         let edited = std::mem::take(&mut self.edited);
-        let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()).filter(|r| r.is_empty())
-        else {
-            return;
-        };
-        let cursor = range.primary.index.0;
+        let Some(cursor) = caret_index(ctx, id) else { return };
         // 번호 목록에서 항목을 넣거나 지우면 번호를 다시 매김 (글을 고친 프레임에만)
         if edited
             && self.doc().is_markdown()
@@ -120,9 +112,7 @@ impl NotepadApp {
             && let Some((text, to)) = editing::escape_folded_toggle(&self.doc().text, cursor, from)
         {
             if text == self.doc().text {
-                let mut state = TextEditState::load(ctx, id).unwrap_or_default();
-                state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(to))));
-                state.store(ctx, id);
+                set_caret(ctx, id, to);
                 ctx.request_repaint();
             } else {
                 self.apply_edit(ctx, id, text, to..to);
@@ -135,10 +125,7 @@ impl NotepadApp {
         if !typed_space || !self.is_document_mode() {
             return;
         }
-        let Some(cursor) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.0)
-        else {
-            return;
-        };
+        let Some(cursor) = cursor_index(ctx, id) else { return };
         let text = &self.doc().text;
         let byte = markdown::char_to_byte(text, cursor);
         let line_start = text[..byte].rfind('\n').map_or(0, |i| i + 1);
@@ -164,9 +151,7 @@ impl NotepadApp {
             let details_char = markdown::byte_to_char(&doc.text, details_line);
             let delta = doc.text.len() as isize - before as isize;
             let c = if c > details_char { (c as isize + delta).max(0) as usize } else { c };
-            let mut state = TextEditState::load(ctx, id).unwrap_or_default();
-            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(c))));
-            state.store(ctx, id);
+            set_caret(ctx, id, c);
         }
     }
 
@@ -175,10 +160,8 @@ impl NotepadApp {
         if !self.is_document_mode() {
             return;
         }
-        let Some(mut state) = TextEditState::load(ctx, id) else { return };
-        let Some(range) = state.cursor.char_range().filter(|r| r.is_empty()) else { return };
+        let Some(cursor) = caret_index(ctx, id) else { return };
         let text = &self.doc().text;
-        let cursor = range.primary.index.0;
         if editing::toggle_at_cursor(text, cursor).is_none() {
             return;
         }
@@ -189,9 +172,7 @@ impl NotepadApp {
         let (lo, hi) = (line_start + title.start, line_start + title.end);
         let clamped = byte.clamp(lo, hi);
         if clamped != byte {
-            let c = markdown::byte_to_char(text, clamped);
-            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(c))));
-            state.store(ctx, id);
+            set_caret(ctx, id, markdown::byte_to_char(text, clamped));
             ctx.request_repaint();
         }
     }

@@ -12,9 +12,8 @@ impl NotepadApp {
 
     pub(super) fn prefill_find_query(&mut self, ctx: &egui::Context) {
         let id = editor_id(self.doc().id);
-        if let Some(range) = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()) {
-            let r = range.as_sorted_char_range();
-            let (s, e) = (r.start.0, r.end.0);
+        if let Some(r) = selection(ctx, id) {
+            let (s, e) = (r.start, r.end);
             if s != e {
                 let text = &self.doc().text;
                 let sel = &text[markdown::char_to_byte(text, s)..markdown::char_to_byte(text, e)];
@@ -57,13 +56,7 @@ impl NotepadApp {
 
     pub(super) fn current_selection(&self, ctx: &egui::Context) -> Range<usize> {
         let id = editor_id(self.doc().id);
-        TextEditState::load(ctx, id)
-            .and_then(|s| s.cursor.char_range())
-            .map(|r| {
-                let r = r.as_sorted_char_range();
-                r.start.0..r.end.0
-            })
-            .unwrap_or(0..0)
+        selection(ctx, id).unwrap_or(0..0)
     }
 
     pub(super) fn find_step(&mut self, ctx: &egui::Context, forward: bool) {

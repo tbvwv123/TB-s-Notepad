@@ -311,13 +311,10 @@ impl NotepadApp {
     pub(super) fn after_reload(&mut self, ctx: &egui::Context, index: usize, old_text: &str) {
         let doc = &self.docs[index];
         let id = editor_id(doc.id);
-        if let Some(mut state) = TextEditState::load(ctx, id)
-            && let Some(range) = state.cursor.char_range()
-        {
+        if let Some(range) = cursor_range(ctx, id) {
             let primary = remap_char_index(old_text, &doc.text, range.primary.index.0);
             let secondary = remap_char_index(old_text, &doc.text, range.secondary.index.0);
-            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(secondary), CCursor::new(primary))));
-            state.store(ctx, id);
+            set_selection(ctx, id, secondary..primary);
         }
         if index == self.active {
             self.find.current = None;

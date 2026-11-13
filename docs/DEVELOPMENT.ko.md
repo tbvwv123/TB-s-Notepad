@@ -94,7 +94,11 @@ gh attestation verify TB-Notepad.exe -R tbvwv123/TB-s-Notepad
 | `src/twemoji.rs` · `src/twemoji_table.rs` | 기본 트위모지 약 300개 (목록 `scripts/twemoji_list.py`, 표는 `scripts/fetch-twemoji.py` 가 만듦) |
 | `src/folder_meta.rs` | 사이드바 상단 고정 · 숨김 · 끌어서 정한 순서 (메모 폴더마다 `.tbnotepad.json`) |
 | `src/tags.rs` | `#태그`: 글에서 찾기, 태그 검색식(AND · OR · 빼기), 치고 있는 태그 채우기 |
-| `src/app/slash.rs` | `/` 명령 목록: 명령 표, 걸러내기(초성 포함), 열기·닫기·키 처리, 실행 |
+| `src/app/slash/mod.rs` | `/` 명령 · `:` 이모지 목록: 여는 자리 판단, 열기·닫기·키 처리 (Esc 는 목록만 닫고 커서는 그대로) |
+| `src/app/slash/commands.rs` | 명령 표와 걸러내기 (이름 · 다른 이름 · 한글 초성) |
+| `src/app/slash/run.rs` | 고른 명령 실행 (친 `/검색어` 를 지우고 서식 넣기 · 창 열기) |
+| `src/app/slash/popup.rs` | 목록 창 그리기 |
+| `src/app/caret.rs` | 편집기 커서(선택 영역) 읽기 · 옮기기 |
 | `src/app/note_links.rs` | 링크 따라가기(메모 열고 줄·제목으로, 폴더는 사이드바, 그 밖은 탐색기), 이 줄 링크 복사, 메모 링크 고르기 창 |
 | `src/app/media_cards.rs` | 소리 카드(재생/멈춤·재생 막대·소리 크기)와 영상 카드(첫 장면·기본 플레이어로 열기), 파일 정보 읽기 |
 | `src/app/find.rs` | 찾기 / 바꾸기 카드 |

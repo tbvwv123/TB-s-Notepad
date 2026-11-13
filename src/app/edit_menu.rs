@@ -75,11 +75,7 @@ impl NotepadApp {
         let (a, b) = (markdown::char_to_byte(&doc.text, sel.start), markdown::char_to_byte(&doc.text, sel.end));
         let selected = doc.text[a..b].to_owned();
         // 메뉴를 누르는 동안 편집기 포커스가 빠져 선택이 풀렸을 수 있으므로 되살려 둠
-        let restore = |ctx: &egui::Context, r: Range<usize>| {
-            let mut state = TextEditState::load(ctx, id).unwrap_or_default();
-            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(r.start), CCursor::new(r.end))));
-            state.store(ctx, id);
-        };
+        let restore = |ctx: &egui::Context, r: Range<usize>| set_selection(ctx, id, r);
         match what {
             EditMenu::Copy => ctx.copy_text(selected),
             EditMenu::Cut => {

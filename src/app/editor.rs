@@ -64,11 +64,7 @@ impl NotepadApp {
         self.editing_keys(&ctx, id);
         // 오른쪽 클릭하면 TextEdit 이 커서를 옮겨 선택이 풀리므로, 그 전의 선택을 기억해 둠
         let right_press = ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
-        let sel_before = if right_press {
-            TextEditState::load(&ctx, id).and_then(|s| s.cursor.char_range()).filter(|r| !r.is_empty())
-        } else {
-            None
-        };
+        let sel_before = if right_press { cursor_range(&ctx, id).filter(|r| !r.is_empty()) } else { None };
         let is_md = self.doc().is_markdown();
         let has_path = self.doc().path.is_some();
         let mut menu_pick = None;
@@ -175,7 +171,14 @@ impl NotepadApp {
                     .margin(EDITOR_MARGIN)
                     .desired_width(if wrap { col_w - gutter_w } else { f32::INFINITY })
                     .desired_rows(rows)
-                    .lock_focus(true)
+                    // Tab 은 들여쓰기로, Esc 는 열린 목록만 닫고 커서는 그대로 둠
+                    // (egui 기본값은 Esc 를 누르면 프레임 시작에 편집기 포커스를 거둠)
+                    .event_filter(egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: true,
+                    })
                     .hint_text(if doc_mode { t!("제목을 쓰고 Enter를 눌러 시작하세요") } else { "" })
                     .layouter(&mut layouter)
                     .show(ui);
@@ -261,9 +264,7 @@ impl NotepadApp {
                     if let (Some(old), Some(now)) = (sel_before, cursor_range) {
                         let r = old.as_sorted_char_range();
                         if (r.start.0..=r.end.0).contains(&now.primary.index.0) {
-                            let mut st = output.state.clone();
-                            st.cursor.set_char_range(Some(old));
-                            st.store(&ctx, id);
+                            set_cursor_range(&ctx, id, old);
                             cursor_range = Some(old);
                         }
                     }
@@ -285,9 +286,7 @@ impl NotepadApp {
                         .or_else(|| snap_out_of_emoji(range, &emoji_spans(doc), last_cursor))
                         .or_else(|| snap_past_markers(range, &marker_spans(doc), last_cursor, &doc.text));
                     if let Some(snapped) = snapped {
-                        let mut st = output.state.clone();
-                        st.cursor.set_char_range(Some(snapped));
-                        st.store(&ctx, id);
+                        set_cursor_range(&ctx, id, snapped);
                         cursor_range = Some(snapped);
                         ctx.request_repaint();
                     }
@@ -356,9 +355,7 @@ impl NotepadApp {
         self.edited |= edited_now;
         self.after_edit_fixes(&ctx, id);
         if let Some((path, at)) = dropped_note {
-            let mut state = TextEditState::load(&ctx, id).unwrap_or_default();
-            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(at))));
-            state.store(&ctx, id);
+            set_caret(&ctx, id, at);
             let is_dir = path.is_dir();
             self.insert_note_link(&path, is_dir);
         }
@@ -369,51 +366,7 @@ impl NotepadApp {
             self.apply_edit_menu(&ctx, id, what, sel);
         }
 
-        // 그림 도구 막대 (선택한 그림 위에 떠 있음)
-        let mut image_action = decorations.image_action;
-        if let Some((r, line, align, kind)) = decorations.image_toolbar {
-            let current = image_line_at(&self.docs[self.active].text, line).and_then(|(_, w, _)| w);
-            if let Some(a) = image_toolbar_ui(&ctx, r, editor_top, line, align, current, kind) {
-                image_action = Some(a);
-            }
-        }
-        match image_action {
-            Some(ImageAction::RegisterEmoji(line)) => self.register_emoji_from_image(line),
-            Some(ImageAction::Select(line)) => {
-                self.selected_image = Some((doc_id, line));
-                ctx.memory_mut(|m| m.surrender_focus(id));
-                editor_focused = false;
-            }
-            Some(a) => self.apply_image_action(a),
-            None if editor_focused => self.selected_image = None,
-            None => {}
-        }
-
-        for path in decorations.media_requests {
-            self.media.request(&ctx, path);
-        }
-        if let Some(a) = decorations.media_action {
-            self.apply_media_action(&ctx, a);
-        }
-        if let Some(byte) = decorations.flip_toggle {
-            self.flip_toggle(&ctx, id, byte, last_cursor);
-        } else if editor_focused {
-            self.clamp_toggle_cursor(&ctx, id);
-        }
-        if let Some(url) = decorations.follow_link {
-            self.follow_link(&ctx, &url);
-        }
-        if let Some(tag) = decorations.follow_tag {
-            self.sidebar.show_tag(&tag);
-            self.settings.sidebar_visible = true;
-        }
-        if let Some((byte, checked)) = decorations.toggle_task {
-            let doc = &mut self.docs[self.active];
-            if matches!(doc.text.as_bytes().get(byte), Some(b' ' | b'x' | b'X')) {
-                doc.text.replace_range(byte..byte + 1, if checked { "x" } else { " " });
-                doc.mark_changed();
-            }
-        }
+        let editor_focused = self.apply_deco_output(&ctx, id, decorations, editor_top, last_cursor, editor_focused);
         self.cursor = cursor_info;
         if let Some(c) = new_cursor {
             self.last_cursor = Some((doc_id, c));
@@ -425,35 +378,81 @@ impl NotepadApp {
         }
     }
 
+    /// 꾸밈에서 누른 것들을 처리합니다: 그림 도구 막대, 소리·영상 카드, 토글 ▶, 링크, 태그, 체크박스.
+    /// 편집기에 포커스가 남아 있는지를 돌려줍니다 (그림을 선택하면 포커스를 거둠).
+    fn apply_deco_output(
+        &mut self,
+        ctx: &egui::Context,
+        id: Id,
+        out: decorations::DecoOutput,
+        editor_top: f32,
+        last_cursor: Option<usize>,
+        mut editor_focused: bool,
+    ) -> bool {
+        // 그림 도구 막대 (선택한 그림 위에 떠 있음)
+        let mut image_action = out.image_action;
+        if let Some((r, line, align, kind)) = out.image_toolbar {
+            let current = image_line_at(&self.doc().text, line).and_then(|(_, w, _)| w);
+            if let Some(a) = image_toolbar_ui(ctx, r, editor_top, line, align, current, kind) {
+                image_action = Some(a);
+            }
+        }
+        match image_action {
+            Some(ImageAction::RegisterEmoji(line)) => self.register_emoji_from_image(line),
+            Some(ImageAction::Select(line)) => {
+                self.selected_image = Some((self.doc().id, line));
+                ctx.memory_mut(|m| m.surrender_focus(id));
+                editor_focused = false;
+            }
+            Some(a) => self.apply_image_action(a),
+            None if editor_focused => self.selected_image = None,
+            None => {}
+        }
+
+        for path in out.media_requests {
+            self.media.request(ctx, path);
+        }
+        if let Some(a) = out.media_action {
+            self.apply_media_action(ctx, a);
+        }
+        if let Some(byte) = out.flip_toggle {
+            self.flip_toggle(ctx, id, byte, last_cursor);
+        } else if editor_focused {
+            self.clamp_toggle_cursor(ctx, id);
+        }
+        if let Some(url) = out.follow_link {
+            self.follow_link(ctx, &url);
+        }
+        if let Some(tag) = out.follow_tag {
+            self.sidebar.show_tag(&tag);
+            self.settings.sidebar_visible = true;
+        }
+        if let Some((byte, checked)) = out.toggle_task {
+            let doc = &mut self.docs[self.active];
+            if matches!(doc.text.as_bytes().get(byte), Some(b' ' | b'x' | b'X')) {
+                doc.text.replace_range(byte..byte + 1, if checked { "x" } else { " " });
+                doc.mark_changed();
+            }
+        }
+        editor_focused
+    }
+
     /// 서식 도구·찾기·그림 선택에서 예약한 일을 TextEdit을 그리기 전에 처리합니다.
     fn apply_pending_edits(&mut self, ctx: &egui::Context, id: Id) {
         if let Some(action) = self.pending_action.take()
             && (self.doc().is_markdown() || matches!(action, MdAction::Insert(_)))
         {
             let doc = &mut self.docs[self.active];
-            let mut state = TextEditState::load(ctx, id).unwrap_or_default();
             let end = doc.text.chars().count();
-            let sel = state
-                .cursor
-                .char_range()
-                .map(|r| {
-                    let r = r.as_sorted_char_range();
-                    r.start.0.min(end)..r.end.0.min(end)
-                })
-                .unwrap_or(end..end);
+            let sel = selection(ctx, id).map_or(end..end, |r| r.start.min(end)..r.end.min(end));
             let new_sel = markdown::apply_action(&mut doc.text, sel, &action);
             doc.mark_changed();
-            state
-                .cursor
-                .set_char_range(Some(CCursorRange::two(CCursor::new(new_sel.start), CCursor::new(new_sel.end))));
-            state.store(ctx, id);
+            set_selection(ctx, id, new_sel);
             self.focus_editor = true;
             self.scroll_to_cursor = true;
         }
         if let Some(sel) = self.pending_select.take() {
-            let mut state = TextEditState::load(ctx, id).unwrap_or_default();
-            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(sel.start), CCursor::new(sel.end))));
-            state.store(ctx, id);
+            set_selection(ctx, id, sel);
             self.scroll_to_cursor = true;
             // 찾기 카드의 "n/전체" 표시가 바로 갱신되도록
             ctx.request_repaint();
@@ -493,9 +492,8 @@ impl NotepadApp {
 
     /// 커서가 있는 줄 번호 (0부터)
     fn cursor_line(&self, ctx: &egui::Context, id: Id) -> Option<usize> {
-        let range = TextEditState::load(ctx, id)?.cursor.char_range()?;
         let text = &self.doc().text;
-        let b = markdown::char_to_byte(text, range.primary.index.0);
+        let b = markdown::char_to_byte(text, cursor_index(ctx, id)?);
         Some(text[..b].matches('\n').count())
     }
 

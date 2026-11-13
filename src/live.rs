@@ -185,13 +185,47 @@ impl<'a> Builder<'a> {
     fn marker(&self, active: bool) -> TextFormat {
         if active { self.fmt(&self.st.body, 1.0, self.st.muted) } else { self.hidden() }
     }
+
+    /// [`Self::marker`] 와 같되, 드러낼 때는 곁의 글자 크기 `size` 에 맞춤 (제목 · 작은 글씨의 기호)
+    fn marker_sized(&self, active: bool, size: f32) -> TextFormat {
+        let mut m = self.marker(active);
+        if active {
+            m.font_id.size = size;
+        }
+        m
+    }
+}
+
+/// 배치할 한 줄
+struct Line<'a> {
+    /// 줄 번호 (0부터)
+    no: usize,
+    /// 커서가 있는 줄 (기호를 흐리게 드러냄)
+    active: bool,
+    /// 이 줄이 원문에서 시작하는 바이트 위치와 글자 위치
+    start_byte: usize,
+    start_char: usize,
+    /// 줄바꿈까지 포함한 줄
+    raw: &'a str,
+    /// 줄바꿈을 뺀 내용
+    body: &'a str,
+    /// `"\n"`, 마지막 줄이면 `""`
+    nl: &'a str,
+    /// 앞 들여쓰기를 뺀 내용과 들여쓰기 바이트 수
+    trimmed: &'a str,
+    indent: usize,
 }
 
 pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
-    let st = input.style;
     let text = input.text;
-    let mut b =
-        Builder { job: LayoutJob::default(), st, base_dir: input.base_dir, chars: 0, decos: Vec::new(), lead: 0.0 };
+    let mut b = Builder {
+        job: LayoutJob::default(),
+        st: input.style,
+        base_dir: input.base_dir,
+        chars: 0,
+        decos: Vec::new(),
+        lead: 0.0,
+    };
     let mut image_uris = Vec::new();
 
     if text.len() > MAX_LIVE_BYTES {
@@ -202,296 +236,354 @@ pub fn layout(input: &LiveInput<'_>) -> LiveLayout {
 
     let tables = find_tables(text);
     let toggles = find_toggles(text);
-    let indent_w = st.size * TOGGLE_INDENT_SCALE;
-    // 접힌 토글이라도 커서가 그 안에 들어가면 펼쳐 보여 줌
-    let shown_open = |t: &ToggleBlock| t.open || input.active_line.is_some_and(|a| a > t.summary && a < t.close);
     let mut table_rows: Vec<TableRow> = Vec::new();
     let mut fence: Option<(&str, usize)> = None; // (여는 기호, 블록 시작 글자 위치)
-    for (line_no, line) in text.split_inclusive('\n').enumerate() {
-        let active = input.active_line == Some(line_no);
-        // 이 줄이 원문에서 시작하는 바이트 위치
-        let line_start_byte = line.as_ptr() as usize - text.as_ptr() as usize;
-        let (body, nl) = match line.strip_suffix('\n') {
+    for (no, raw) in text.split_inclusive('\n').enumerate() {
+        let (body, nl) = match raw.strip_suffix('\n') {
             Some(x) => (x, "\n"),
-            None => (line, ""),
+            None => (raw, ""),
         };
-        let line_start_char = b.chars;
         let trimmed = body.trim_start();
-        let indent = body.len() - trimmed.len();
-        let is_fence = ["```", "~~~"].into_iter().find(|f| trimmed.starts_with(f));
-
-        // 토글: 접힌 내용은 숨기고, <details> · </details> 줄은 커서가 있을 때만 흐리게
+        let line = Line {
+            no,
+            active: input.active_line == Some(no),
+            start_byte: raw.as_ptr() as usize - text.as_ptr() as usize,
+            start_char: b.chars,
+            raw,
+            body,
+            nl,
+            trimmed,
+            indent: body.len() - trimmed.len(),
+        };
         b.lead = 0.0;
-        if fence.is_none() {
-            if toggles.iter().any(|t| !shown_open(t) && line_no > t.summary && line_no <= t.close) {
-                let f = b.hidden();
-                b.push(line, f);
-                continue;
-            }
-            if toggles.iter().any(|t| line_no == t.details || line_no == t.close) {
-                let f = if active { b.fmt(&st.mono, 0.85, st.muted) } else { b.hidden() };
-                b.push(line, f);
-                continue;
-            }
-            if let Some(t) = toggles.iter().find(|t| line_no == t.summary) {
-                let title = crate::editing::summary_line(body).unwrap_or(0..0);
-                b.lead = (t.depth + 1) as f32 * indent_w;
-                // <summary> 태그는 커서가 있어도 숨김 (커서는 제목 안에만 머묾).
-                // 제목이 비어도 줄이 납작해지지 않게 보통 줄 높이를 줌
-                let m = b.hidden_row(st.size);
-                b.push(&body[..title.start], m.clone());
-                // 제목 앞의 `# ` · `## ` · `### ` 는 제목 크기 토글 (기호는 커서가 있을 때만 흐리게)
-                let tt = &body[title.clone()];
-                let hashes = tt.bytes().take_while(|&c| c == b'#').count();
-                if (1..=3).contains(&hashes) && tt[hashes..].starts_with(' ') {
-                    let scale = [1.75, 1.45, 1.22][hashes - 1];
-                    let mut mf = b.marker(active);
-                    if active {
-                        mf.font_id.size = st.size * scale;
-                    }
-                    b.push(&tt[..hashes + 1], mf);
-                    let hf = b.fmt(&st.bold, scale, st.heading);
-                    inline(&mut b, &tt[hashes + 1..], &hf, active);
-                } else {
-                    let base = b.body();
-                    inline(&mut b, tt, &base, active);
-                }
-                b.push(&body[title.end..], m);
-                let nl_f = b.body();
-                b.push(nl, nl_f);
-                b.decos.push(Deco::Toggle {
-                    at: line_start_char,
-                    open: shown_open(t),
-                    details_byte: t.details_byte,
-                    depth: t.depth,
-                    empty: title.is_empty(),
-                });
-                continue;
-            }
-            // 펼친 토글 안의 줄은 들여씀
-            let depth = toggles.iter().filter(|t| line_no > t.summary && line_no < t.close).count();
-            b.lead = depth as f32 * indent_w;
+        // 앞선 것이 먼저: 코드 블록 안에서는 토글 · 표 · 그림 문법을 보지 않습니다.
+        let done = (fence.is_none() && b.toggle_line(&line, &toggles, input.active_line))
+            || b.fence_line(&line, &mut fence)
+            || b.table_line(&line, &tables, input.active_line, &mut table_rows)
+            || b.media_line(&line, input, &mut image_uris)
+            || b.subtext_line(&line)
+            || b.heading_line(&line)
+            || b.rule_line(&line);
+        if !done {
+            b.text_line(&line);
         }
-
-        // ``` 코드 블록
-        if let Some((open, start)) = fence {
-            let closing = is_fence == Some(open);
-            if closing {
-                let f = if active { b.fmt(&st.mono, 0.85, st.muted) } else { b.hidden() };
-                b.push(body, f);
-                let end = b.chars;
-                b.decos.push(Deco::CodeBlock { start, end });
-                fence = None;
-                let f = if active { b.fmt(&st.mono, 0.85, st.muted) } else { b.hidden() };
-                b.push(nl, f);
-            } else {
-                let f = b.fmt(&st.mono, 0.9, st.code);
-                b.push(line, f);
-            }
-            continue;
-        }
-        if let Some(open) = is_fence {
-            fence = Some((open, line_start_char));
-            let f = if active { b.fmt(&st.mono, 0.85, st.muted) } else { b.hidden() };
-            b.push(line, f);
-            continue;
-        }
-
-        // 표: 커서가 표 안에 있으면 고칠 수 있게 원문(고정폭)으로, 밖에 있으면 원문을 숨기고 칸과 선으로 그림
-        if let Some(tb) = tables.iter().find(|t| (t.start..t.end).contains(&line_no)) {
-            let separator = line_no == tb.start + 1;
-            let editing = input.active_line.is_some_and(|a| (tb.start..tb.end).contains(&a));
-            if editing {
-                let f = b.fmt(&st.mono, 0.9, if separator { st.muted } else { st.text });
-                b.push(body, f.clone());
-                b.push(nl, f);
-            } else {
-                let row_height = (st.size * TABLE_ROW_SCALE).round();
-                let mut f = b.hidden();
-                f.line_height = Some(if separator { 1.0 } else { row_height });
-                if !separator {
-                    let cells = split_cells(body).iter().map(|c| plain_cell(c)).collect();
-                    table_rows.push(TableRow { at: line_start_char, cells, header: line_no == tb.start });
-                }
-                b.push(body, f.clone());
-                b.push(nl, f);
-                if line_no + 1 == tb.end {
-                    let rows = std::mem::take(&mut table_rows);
-                    b.decos.push(Deco::Table { rows, aligns: tb.aligns.clone(), row_height });
-                }
-            }
-            continue;
-        }
-
-        // 그림·소리·영상만 있는 줄: 경로 글자는 커서가 있어도 숨기고 그림(카드)만 보여 줍니다
-        // (크기·위치·삭제는 그림을 눌러서 나오는 도구로).
-        if let Some(img) = parse_image_line(trimmed) {
-            let uri = resolve_uri(img.dest, input.base_dir);
-            let kind = crate::media::kind_of(img.dest);
-            let max_w = input.max_image_width.max(40.0);
-            let pct_w = img.width.map(|pct| max_w * pct as f32 / 100.0);
-            let size = match kind {
-                MediaKind::Image => {
-                    image_uris.push(uri.clone());
-                    (input.image_size)(&uri).filter(|s| s.x > 0.0 && s.y > 0.0).map(|nat| {
-                        let w = pct_w.unwrap_or(nat.x.min(max_w));
-                        Vec2::new(w, nat.y * w / nat.x)
-                    })
-                }
-                // 소리 카드는 너무 좁으면 재생 막대가 안 보여서 최소 폭을 둡니다
-                MediaKind::Audio => Some(Vec2::new(pct_w.unwrap_or(440.0).max(300.0).min(max_w), AUDIO_CARD_HEIGHT)),
-                MediaKind::Video => {
-                    let w = pct_w.unwrap_or(480.0).max(160.0).min(max_w);
-                    Some(Vec2::new(w, w * 9.0 / 16.0))
-                }
-            };
-            if let Some(size) = size {
-                let top = 6.0;
-                let mut f = b.hidden();
-                f.line_height = Some(top + size.y + 10.0);
-                b.push(body, f.clone());
-                b.push(nl, f);
-                let line = line_start_byte..line_start_byte + body.len();
-                let end = line_start_char + body.chars().count();
-                b.decos.push(Deco::Image {
-                    kind,
-                    at: line_start_char,
-                    end,
-                    uri,
-                    size,
-                    top,
-                    align: img.align,
-                    line,
-                    max_w,
-                });
-                continue;
-            }
-        }
-
-        // -# 작은 글씨 (디스코드식 보조 글): 기호는 숨기고 작고 흐리게
-        if let Some(rest) = subtext_body(trimmed) {
-            let marker_end = body.len() - rest.len();
-            let mut mf = b.marker(active);
-            if active {
-                mf.font_id.size = st.size * SUBTEXT_SCALE;
-            }
-            b.push(&body[..marker_end], mf);
-            let sf = b.fmt(&st.body, SUBTEXT_SCALE, st.muted);
-            inline(&mut b, rest, &sf, active);
-            b.push(nl, sf);
-            continue;
-        }
-
-        // # 제목
-        let hashes = trimmed.bytes().take_while(|&c| c == b'#').count();
-        if (1..=6).contains(&hashes) && trimmed[hashes..].chars().next().is_none_or(|c| c == ' ') {
-            let scale = match hashes {
-                1 => 1.75,
-                2 => 1.45,
-                3 => 1.22,
-                _ => 1.08,
-            };
-            let marker_end = (indent + hashes + 1).min(body.len());
-            let mut mf = b.marker(active);
-            if active {
-                mf.font_id.size = st.size * scale;
-            }
-            b.push(&body[..marker_end], mf);
-            let hf = b.fmt(&st.bold, scale, st.heading);
-            inline(&mut b, &body[marker_end..], &hf, active);
-            b.push(nl, hf);
-            continue;
-        }
-
-        // --- 구분선
-        let compact: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
-        if compact.len() >= 3 && ["-", "*", "_"].iter().any(|m| compact.chars().all(|c| c.to_string() == *m)) {
-            if active {
-                let f = b.fmt(&st.body, 1.0, st.muted);
-                b.push(line, f);
-            } else {
-                let mut f = b.hidden();
-                f.line_height = Some(st.size * 1.4);
-                b.push(body, f.clone());
-                b.push(nl, f);
-                b.decos.push(Deco::Rule { at: line_start_char });
-            }
-            continue;
-        }
-
-        let mut rest = indent;
-        let mut base = b.body();
-        b.push(&body[..indent], base.clone());
-
-        if trimmed.starts_with('>') {
-            // > 인용
-            let n = trimmed.bytes().take_while(|&c| c == b'>' || c == b' ').count();
-            let f = b.marker(active);
-            b.push(&body[rest..rest + n], f);
-            rest += n;
-            base = b.fmt(&st.body, 1.0, st.quote);
-            let end_char = line_start_char + body.chars().count();
-            b.decos.push(Deco::Quote { start: line_start_char, end: end_char });
-        } else if let Some(m) = list_marker(trimmed) {
-            let after = &body[rest + m.len..];
-            let task = ["[ ] ", "[x] ", "[X] "].into_iter().find(|t| after.starts_with(t) || after == t.trim_end());
-            match (m.kind, task) {
-                (ListKind::Bullet, Some(t)) => {
-                    // "- " 는 숨기고 "[ ]" 자리에 체크박스
-                    let f = b.hidden();
-                    b.push(&body[rest..rest + m.len], f);
-                    rest += m.len;
-                    let checked = t != "[ ] ";
-                    let at = b.chars;
-                    let box_len = 3.min(body.len() - rest);
-                    let mut bf = b.body();
-                    bf.color = Color32::TRANSPARENT;
-                    b.push(&body[rest..rest + box_len], bf);
-                    let space = usize::from(body[rest + box_len..].starts_with(' '));
-                    let text_at = at + box_len + space;
-                    b.decos.push(Deco::Task { at, checked, byte: line_start_byte + rest + 1, text_at });
-                    rest += box_len;
-                    if checked {
-                        base = b.fmt(&st.body, 1.0, st.muted);
-                        base.strikethrough = Stroke::new(1.0, st.muted);
-                    }
-                }
-                (ListKind::Bullet, None) => {
-                    let at = b.chars;
-                    let mut f = b.body();
-                    f.color = Color32::TRANSPARENT;
-                    b.push(&body[rest..rest + m.len], f);
-                    rest += m.len;
-                    b.decos.push(Deco::Bullet { at, level: indent / 2, text_at: b.chars });
-                }
-                (ListKind::Number, _) => {
-                    let f = b.fmt(&st.body, 1.0, st.muted);
-                    b.push(&body[rest..rest + m.len], f);
-                    rest += m.len;
-                }
-            }
-        } else if trimmed.starts_with('|') {
-            // 표: 고정폭으로 줄 맞춤
-            base = b.fmt(&st.mono, 0.9, st.text);
-            let pipe = b.fmt(&st.mono, 0.9, st.muted);
-            for (i, cell) in body[rest..].split('|').enumerate() {
-                if i > 0 {
-                    b.push("|", pipe.clone());
-                }
-                b.push(cell, base.clone());
-            }
-            b.push(nl, base);
-            continue;
-        }
-
-        inline(&mut b, &body[rest..], &base, active);
-        b.push(nl, base);
     }
     if let Some((_, start)) = fence {
         let end = b.chars;
         b.decos.push(Deco::CodeBlock { start, end });
     }
+    // 글이 줄바꿈으로 끝나면 맨 끝의 빈 줄은 글자가 없어서, egui 가 앞 줄 줄바꿈의 서식에서 높이를 가져옵니다.
+    // 그러면 그림 뒤에서는 그림만큼 높고, 제목 뒤에서는 제목만큼 크고, 닫는 ``` · </details> 뒤에서는 납작해져
+    // 커서가 이상해지므로, 빈 구간을 덧붙여 보통 줄 높이로 정합니다.
+    if text.ends_with('\n') {
+        let f = b.body();
+        b.job.append("", 0.0, f);
+    }
     LiveLayout { job: b.job, decos: b.decos, image_uris }
+}
+
+/// `#` 개수에 따른 제목 글자 크기 (본문 대비)
+fn heading_scale(level: usize) -> f32 {
+    match level {
+        1 => 1.75,
+        2 => 1.45,
+        3 => 1.22,
+        _ => 1.08,
+    }
+}
+
+/// 줄 종류마다 하나씩. `bool` 을 돌려주는 것은 그 종류의 줄이어서 배치를 마쳤으면 `true`.
+impl Builder<'_> {
+    /// 토글: 접힌 내용은 숨기고, `<details>` · `</details>` 줄은 커서가 있을 때만 흐리게, 제목 줄은 ▶ 와 함께.
+    /// 토글 줄이 아니면 펼친 토글 안에 있는 만큼 들여쓰기만 정합니다.
+    fn toggle_line(&mut self, l: &Line<'_>, toggles: &[ToggleBlock], active_line: Option<usize>) -> bool {
+        let st = self.st;
+        let indent_w = st.size * TOGGLE_INDENT_SCALE;
+        if toggles.iter().any(|t| !t.shown_open(active_line) && l.no > t.summary && l.no <= t.close) {
+            let f = self.hidden();
+            self.push(l.raw, f);
+            return true;
+        }
+        if toggles.iter().any(|t| l.no == t.details || l.no == t.close) {
+            let f = if l.active { self.fmt(&st.mono, 0.85, st.muted) } else { self.hidden() };
+            self.push(l.raw, f);
+            return true;
+        }
+        let Some(t) = toggles.iter().find(|t| l.no == t.summary) else {
+            let depth = toggles.iter().filter(|t| l.no > t.summary && l.no < t.close).count();
+            self.lead = depth as f32 * indent_w;
+            return false;
+        };
+        let title = crate::editing::summary_line(l.body).unwrap_or(0..0);
+        self.lead = (t.depth + 1) as f32 * indent_w;
+        // <summary> 태그는 커서가 있어도 숨김 (커서는 제목 안에만 머묾).
+        // 제목이 비어도 줄이 납작해지지 않게 보통 줄 높이를 줌
+        let tag = self.hidden_row(st.size);
+        self.push(&l.body[..title.start], tag.clone());
+        // 제목 앞의 `# ` · `## ` · `### ` 는 제목 크기 토글 (기호는 커서가 있을 때만 흐리게)
+        let tt = &l.body[title.clone()];
+        let hashes = tt.bytes().take_while(|&c| c == b'#').count();
+        if (1..=3).contains(&hashes) && tt[hashes..].starts_with(' ') {
+            let scale = heading_scale(hashes);
+            let mf = self.marker_sized(l.active, st.size * scale);
+            self.push(&tt[..hashes + 1], mf);
+            let hf = self.fmt(&st.bold, scale, st.heading);
+            inline(self, &tt[hashes + 1..], &hf, l.active);
+        } else {
+            let base = self.body();
+            inline(self, tt, &base, l.active);
+        }
+        self.push(&l.body[title.end..], tag);
+        let nl_f = self.body();
+        self.push(l.nl, nl_f);
+        self.decos.push(Deco::Toggle {
+            at: l.start_char,
+            open: t.shown_open(active_line),
+            details_byte: t.details_byte,
+            depth: t.depth,
+            empty: title.is_empty(),
+        });
+        true
+    }
+
+    /// ``` 코드 블록: 여닫는 줄은 커서가 있을 때만 흐리게, 안쪽은 고정폭으로.
+    /// `fence`: 열려 있는 블록의 (여는 기호, 시작 글자 위치)
+    fn fence_line(&mut self, l: &Line<'_>, fence: &mut Option<(&'static str, usize)>) -> bool {
+        let st = self.st;
+        let is_fence = ["```", "~~~"].into_iter().find(|f| l.trimmed.starts_with(f));
+        let edge = |b: &Self| if l.active { b.fmt(&st.mono, 0.85, st.muted) } else { b.hidden() };
+        match *fence {
+            Some((open, start)) if is_fence == Some(open) => {
+                let f = edge(self);
+                self.push(l.body, f.clone());
+                self.decos.push(Deco::CodeBlock { start, end: self.chars });
+                *fence = None;
+                self.push(l.nl, f);
+            }
+            Some(_) => {
+                let f = self.fmt(&st.mono, 0.9, st.code);
+                self.push(l.raw, f);
+            }
+            None => {
+                let Some(open) = is_fence else { return false };
+                *fence = Some((open, l.start_char));
+                let f = edge(self);
+                self.push(l.raw, f);
+            }
+        }
+        true
+    }
+
+    /// 표: 커서가 표 안에 있으면 고칠 수 있게 원문(고정폭)으로, 밖에 있으면 원문을 숨기고 칸과 선으로 그림.
+    /// `rows`: 이 표에서 지금까지 모은 행
+    fn table_line(
+        &mut self,
+        l: &Line<'_>,
+        tables: &[TableBlock],
+        active_line: Option<usize>,
+        rows: &mut Vec<TableRow>,
+    ) -> bool {
+        let st = self.st;
+        let Some(tb) = tables.iter().find(|t| (t.start..t.end).contains(&l.no)) else { return false };
+        let separator = l.no == tb.start + 1;
+        if active_line.is_some_and(|a| (tb.start..tb.end).contains(&a)) {
+            let f = self.fmt(&st.mono, 0.9, if separator { st.muted } else { st.text });
+            self.push(l.body, f.clone());
+            self.push(l.nl, f);
+            return true;
+        }
+        let row_height = (st.size * TABLE_ROW_SCALE).round();
+        let mut f = self.hidden();
+        f.line_height = Some(if separator { 1.0 } else { row_height });
+        if !separator {
+            let cells = split_cells(l.body).iter().map(|c| plain_cell(c)).collect();
+            rows.push(TableRow { at: l.start_char, cells, header: l.no == tb.start });
+        }
+        self.push(l.body, f.clone());
+        self.push(l.nl, f);
+        if l.no + 1 == tb.end {
+            let rows = std::mem::take(rows);
+            self.decos.push(Deco::Table { rows, aligns: tb.aligns.clone(), row_height });
+        }
+        true
+    }
+
+    /// 그림·소리·영상만 있는 줄: 경로 글자는 커서가 있어도 숨기고 그림(카드)만 보여 줍니다
+    /// (크기·위치·삭제는 그림을 눌러서 나오는 도구로). 아직 못 불러온 그림은 보통 줄(링크 모양)로 둡니다.
+    fn media_line(&mut self, l: &Line<'_>, input: &LiveInput<'_>, image_uris: &mut Vec<String>) -> bool {
+        let Some(img) = parse_image_line(l.trimmed) else { return false };
+        let uri = resolve_uri(img.dest, input.base_dir);
+        let kind = crate::media::kind_of(img.dest);
+        let max_w = input.max_image_width.max(40.0);
+        let pct_w = img.width.map(|pct| max_w * pct as f32 / 100.0);
+        let size = match kind {
+            MediaKind::Image => {
+                image_uris.push(uri.clone());
+                (input.image_size)(&uri).filter(|s| s.x > 0.0 && s.y > 0.0).map(|nat| {
+                    let w = pct_w.unwrap_or(nat.x.min(max_w));
+                    Vec2::new(w, nat.y * w / nat.x)
+                })
+            }
+            // 소리 카드는 너무 좁으면 재생 막대가 안 보여서 최소 폭을 둡니다
+            MediaKind::Audio => Some(Vec2::new(pct_w.unwrap_or(440.0).max(300.0).min(max_w), AUDIO_CARD_HEIGHT)),
+            MediaKind::Video => {
+                let w = pct_w.unwrap_or(480.0).max(160.0).min(max_w);
+                Some(Vec2::new(w, w * 9.0 / 16.0))
+            }
+        };
+        let Some(size) = size else { return false };
+        let top = 6.0;
+        let mut f = self.hidden();
+        f.line_height = Some(top + size.y + 10.0);
+        self.push(l.body, f.clone());
+        self.push(l.nl, f);
+        self.decos.push(Deco::Image {
+            kind,
+            at: l.start_char,
+            end: l.start_char + l.body.chars().count(),
+            uri,
+            size,
+            top,
+            align: img.align,
+            line: l.start_byte..l.start_byte + l.body.len(),
+            max_w,
+        });
+        true
+    }
+
+    /// `-# 작은 글씨` (디스코드식 보조 글): 기호는 숨기고 작고 흐리게
+    fn subtext_line(&mut self, l: &Line<'_>) -> bool {
+        let st = self.st;
+        let Some(rest) = subtext_body(l.trimmed) else { return false };
+        let marker_end = l.body.len() - rest.len();
+        let mf = self.marker_sized(l.active, st.size * SUBTEXT_SCALE);
+        self.push(&l.body[..marker_end], mf);
+        let sf = self.fmt(&st.body, SUBTEXT_SCALE, st.muted);
+        inline(self, rest, &sf, l.active);
+        self.push(l.nl, sf);
+        true
+    }
+
+    /// `# 제목`
+    fn heading_line(&mut self, l: &Line<'_>) -> bool {
+        let st = self.st;
+        let hashes = l.trimmed.bytes().take_while(|&c| c == b'#').count();
+        if !(1..=6).contains(&hashes) || l.trimmed[hashes..].chars().next().is_some_and(|c| c != ' ') {
+            return false;
+        }
+        let scale = heading_scale(hashes);
+        let marker_end = (l.indent + hashes + 1).min(l.body.len());
+        let mf = self.marker_sized(l.active, st.size * scale);
+        self.push(&l.body[..marker_end], mf);
+        let hf = self.fmt(&st.bold, scale, st.heading);
+        inline(self, &l.body[marker_end..], &hf, l.active);
+        self.push(l.nl, hf);
+        true
+    }
+
+    /// `---` 구분선: 커서가 있으면 글자 그대로, 없으면 선
+    fn rule_line(&mut self, l: &Line<'_>) -> bool {
+        let st = self.st;
+        let compact: String = l.trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+        if compact.len() < 3 || !['-', '*', '_'].iter().any(|&m| compact.chars().all(|c| c == m)) {
+            return false;
+        }
+        if l.active {
+            let f = self.fmt(&st.body, 1.0, st.muted);
+            self.push(l.raw, f);
+        } else {
+            let mut f = self.hidden();
+            f.line_height = Some(st.size * 1.4);
+            self.push(l.body, f.clone());
+            self.push(l.nl, f);
+            self.decos.push(Deco::Rule { at: l.start_char });
+        }
+        true
+    }
+
+    /// 그 밖의 줄: 인용 · 목록 · (표가 아닌) `|` 줄의 앞머리를 처리하고 나머지는 줄 안 서식으로
+    fn text_line(&mut self, l: &Line<'_>) {
+        let st = self.st;
+        let mut rest = l.indent;
+        let mut base = self.body();
+        self.push(&l.body[..l.indent], base.clone());
+
+        if l.trimmed.starts_with('>') {
+            let n = l.trimmed.bytes().take_while(|&c| c == b'>' || c == b' ').count();
+            let f = self.marker(l.active);
+            self.push(&l.body[rest..rest + n], f);
+            rest += n;
+            base = self.fmt(&st.body, 1.0, st.quote);
+            let end = l.start_char + l.body.chars().count();
+            self.decos.push(Deco::Quote { start: l.start_char, end });
+        } else if let Some(m) = list_marker(l.trimmed) {
+            if let Some(checked) = self.list_prefix(l, &m, &mut rest) {
+                base = checked;
+            }
+        } else if l.trimmed.starts_with('|') {
+            // 구분 줄이 없어 표가 아닌 `|` 줄: 고정폭으로 줄 맞춤
+            base = self.fmt(&st.mono, 0.9, st.text);
+            let pipe = self.fmt(&st.mono, 0.9, st.muted);
+            for (i, cell) in l.body[rest..].split('|').enumerate() {
+                if i > 0 {
+                    self.push("|", pipe.clone());
+                }
+                self.push(cell, base.clone());
+            }
+            self.push(l.nl, base);
+            return;
+        }
+
+        inline(self, &l.body[rest..], &base, l.active);
+        self.push(l.nl, base);
+    }
+
+    /// 목록 기호 (`- ` · `1. ` · `- [ ] `) 를 넣고 `rest` 를 그 뒤로 옮깁니다.
+    /// 끝낸 할 일이면 나머지 글에 쓸 서식(흐리게 · 취소선)을 돌려줍니다.
+    fn list_prefix(&mut self, l: &Line<'_>, m: &ListMarker, rest: &mut usize) -> Option<TextFormat> {
+        let st = self.st;
+        let body = l.body;
+        let after = &body[*rest + m.len..];
+        let task = ["[ ] ", "[x] ", "[X] "].into_iter().find(|t| after.starts_with(t) || after == t.trim_end());
+        match (&m.kind, task) {
+            (ListKind::Bullet, Some(t)) => {
+                // "- " 는 숨기고 "[ ]" 자리에 체크박스
+                let f = self.hidden();
+                self.push(&body[*rest..*rest + m.len], f);
+                *rest += m.len;
+                let checked = t != "[ ] ";
+                let at = self.chars;
+                let box_len = 3.min(body.len() - *rest);
+                let mut bf = self.body();
+                bf.color = Color32::TRANSPARENT;
+                self.push(&body[*rest..*rest + box_len], bf);
+                let space = usize::from(body[*rest + box_len..].starts_with(' '));
+                let text_at = at + box_len + space;
+                self.decos.push(Deco::Task { at, checked, byte: l.start_byte + *rest + 1, text_at });
+                *rest += box_len;
+                checked.then(|| {
+                    let mut done = self.fmt(&st.body, 1.0, st.muted);
+                    done.strikethrough = Stroke::new(1.0, st.muted);
+                    done
+                })
+            }
+            (ListKind::Bullet, None) => {
+                let at = self.chars;
+                let mut f = self.body();
+                f.color = Color32::TRANSPARENT;
+                self.push(&body[*rest..*rest + m.len], f);
+                *rest += m.len;
+                self.decos.push(Deco::Bullet { at, level: l.indent / 2, text_at: self.chars });
+                None
+            }
+            (ListKind::Number, _) => {
+                let f = self.fmt(&st.body, 1.0, st.muted);
+                self.push(&body[*rest..*rest + m.len], f);
+                *rest += m.len;
+                None
+            }
+        }
+    }
 }
 
 enum ListKind {
@@ -517,6 +609,13 @@ pub(crate) struct ToggleBlock {
     /// 바깥 토글 수
     pub depth: usize,
     pub details_byte: usize,
+}
+
+impl ToggleBlock {
+    /// 펼쳐 보일지: 접힌 토글이라도 커서가 그 안에 들어가면 펼쳐 보여 줌
+    fn shown_open(&self, active_line: Option<usize>) -> bool {
+        self.open || active_line.is_some_and(|a| a > self.summary && a < self.close)
+    }
 }
 
 /// 문서의 토글들 (코드 블록 안은 빼고, 닫히지 않은 것도 뺌)
@@ -787,13 +886,7 @@ pub fn resolve_uri(dest: &str, base_dir: Option<&Path>) -> String {
 /// 줄 안의 서식 (**굵게**, *기울임*, ~~취소~~, `코드`, [링크](주소), 맨 주소)
 fn inline(b: &mut Builder<'_>, s: &str, base: &TextFormat, active: bool) {
     let st = b.st;
-    let marker = {
-        let mut m = b.marker(active);
-        if active {
-            m.font_id.size = base.font_id.size;
-        }
-        m
-    };
+    let marker = b.marker_sized(active, base.font_id.size);
     let bytes = s.as_bytes();
     let mut plain = 0;
     let mut i = 0;
@@ -1052,6 +1145,44 @@ mod tests {
         let pending = run("![고양이](cat.png)\n", None, None);
         assert!(!pending.decos.iter().any(|d| matches!(d, Deco::Image { .. })));
         assert_eq!(pending.image_uris.len(), 1);
+    }
+
+    /// 배치한 뒤 각 행의 높이
+    fn row_heights(text: &str, img: Option<Vec2>) -> Vec<f32> {
+        let job = run(text, None, img).job;
+        let ctx = egui::Context::default();
+        let mut heights = Vec::new();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let galley = ui.fonts_mut(|f| f.layout_job(job.clone()));
+            heights = galley.rows.iter().map(|r| r.height()).collect();
+        });
+        // 테스트에서는 글꼴 텍스처를 쓰지 않으므로 버림
+        out.textures_delta.clear();
+        heights
+    }
+
+    #[test]
+    fn last_empty_line_is_a_normal_row() {
+        let normal = row_heights("글\n", None)[1];
+        let img = Some(Vec2::new(400.0, 300.0));
+        // 그림을 붙여넣은 뒤 · 그림 뒤에서 Enter 를 친 뒤의 맨 끝 빈 줄 (커서가 서는 줄)
+        let rows = row_heights("글\n![그림](a.png)\n", img);
+        assert!(rows[1] > 300.0, "그림 줄은 그림 높이: {rows:?}");
+        assert_eq!(rows[2], normal, "그림 아래 빈 줄은 보통 줄 높이: {rows:?}");
+        // 제목 · 표 · 닫는 코드 블록 · 닫는 토글 줄 뒤도 마찬가지 (크거나 납작해지지 않음)
+        for text in [
+            "# 제목\n",
+            "| a | b |\n| - | - |\n| 1 | 2 |\n",
+            "```\n코드\n```\n",
+            "<details open>\n<summary>토글</summary>\n\n내용\n\n</details>\n",
+            "---\n",
+        ] {
+            let rows = row_heights(text, None);
+            assert_eq!(rows.last(), Some(&normal), "{text:?}: {rows:?}");
+        }
+        // 가운데 줄들은 그대로: 그림 줄만 높고 그 아래 빈 줄 · 글 줄은 보통 높이
+        let rows = row_heights("![그림](a.png)\n\n글\n", img);
+        assert!(rows[0] > 300.0 && rows[1..].iter().all(|h| *h == normal), "{rows:?}");
     }
 
     #[test]

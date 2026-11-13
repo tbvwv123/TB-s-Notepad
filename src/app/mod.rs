@@ -1,6 +1,7 @@
 //! 메인 앱: 사이드바(폴더 트리), 문서 편집(서식이 바로 보이는 문서 모드 / 원본 보기),
 //! 찾기, 설정, 자동 저장, 세션 복원.
 
+mod caret;
 mod chrome;
 mod decorations;
 mod dialogs;
@@ -43,6 +44,7 @@ use crate::settings::{Palette, Settings, ThemePreset, ViewMode, c, mix};
 use crate::sidebar::{self, Action, LooseDoc, Sidebar};
 use crate::ui_kit::{self, Icon};
 
+use caret::*;
 use files::*;
 use images::*;
 

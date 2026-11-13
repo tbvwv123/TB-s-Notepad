@@ -38,9 +38,7 @@ impl NotepadApp {
         doc.text.replace_range(a..b, &md);
         doc.mark_changed();
         let end = range.start + md.chars().count();
-        let mut state = TextEditState::load(ctx, id).unwrap_or_default();
-        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end))));
-        state.store(ctx, id);
+        set_caret(ctx, id, end);
         self.focus_editor = true;
         ctx.request_repaint();
     }
@@ -119,12 +117,7 @@ impl NotepadApp {
     /// 이모지는 한 덩어리: 바로 뒤에서 Backspace, 바로 앞에서 Delete 를 누르면 통째로 지웁니다
     /// (한 글자씩 지우면 숨은 문법이 깨져 드러나므로).
     pub(super) fn guard_emoji_edges(&mut self, ctx: &egui::Context, id: Id, spans: &[(usize, usize)]) {
-        let Some(mut state) = TextEditState::load(ctx, id) else { return };
-        let Some(range) = state.cursor.char_range() else { return };
-        if !range.is_empty() {
-            return;
-        }
-        let p = range.primary.index.0;
+        let Some(p) = caret_index(ctx, id) else { return };
         let (backspace, delete) = ctx.input(|i| {
             let key = |k: Key| {
                 i.events.iter().any(|e| {
@@ -147,7 +140,6 @@ impl NotepadApp {
         doc.mark_changed();
         let k = if backspace { Key::Backspace } else { Key::Delete };
         ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Key { key, .. } if *key == k)));
-        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(s0))));
-        state.store(ctx, id);
+        set_caret(ctx, id, s0);
     }
 }

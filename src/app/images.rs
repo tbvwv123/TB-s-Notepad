@@ -176,12 +176,7 @@ impl NotepadApp {
     /// 커서가 그림 앞/뒤에 있을 때, TextEdit보다 먼저 입력을 살펴 그림 문법이 깨지지 않게 합니다.
     /// 커서가 그림 옆에 있으면 `true` (기본 커서 대신 그림 옆에 커서를 그림).
     pub(super) fn guard_image_edges(&mut self, ctx: &egui::Context, id: Id, spans: &[(usize, usize, usize)]) -> bool {
-        let Some(mut state) = TextEditState::load(ctx, id) else { return false };
-        let Some(range) = state.cursor.char_range() else { return false };
-        if !range.is_empty() {
-            return false;
-        }
-        let cur = range.primary.index.0;
+        let Some(cur) = caret_index(ctx, id) else { return false };
         let Some(&(start, end, line_byte)) = spans.iter().find(|(s0, e0, _)| cur == *s0 || cur == *e0) else {
             return false;
         };
@@ -243,8 +238,7 @@ impl NotepadApp {
             }
         }
         if let Some(c) = move_to {
-            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(c))));
-            state.store(ctx, id);
+            set_caret(ctx, id, c);
             return false;
         }
         self.selected_image.is_none_or(|(d, _)| d != self.docs[self.active].id)
